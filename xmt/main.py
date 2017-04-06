@@ -40,6 +40,7 @@ import os
 import re
 from collections import namedtuple
 import shlex
+from glob import glob
 import json
 import logging
 from configparser import ConfigParser
@@ -136,6 +137,8 @@ def main():
         # options_first=True
     )
     logging.basicConfig(level=50 - ((args['--verbose'] + 2) * 10))
+
+    args['ITEM'] = [i for pattern in args['ITEM'] for i in glob(pattern)]
 
     if args['init']:
         init(args)
@@ -258,6 +261,14 @@ def _get_cmdargs(conf):
     return cmdargs
 
 
+def _clear_itsdb_file(root, fn, clear_gzip):
+    fn = os.path.join(root, fn)
+    if os.path.isfile(fn):
+        os.remove(fn)
+    if clear_gzip and os.path.isfile(fn + '.gz'):
+        os.remove(fn + '.gz')
+
+
 def do_task(taskname, args):
     task = tasks[taskname]
     infotbl = task.prefix + '-info'
@@ -272,19 +283,21 @@ def do_task(taskname, args):
             .format(taskname.title(), i+1, width, numitems, itemdir)
         )
         config = _item_config(taskname, itemdir, args)
-        config.write(os.path.join(itemdir, 'run.conf'))
+        with open(os.path.join(itemdir, 'run.conf'), 'w') as fh:
+            config.write(fh)
         task_conf = config[taskname]
         n = task_conf.getint('num-results', -1)
         bufsize = task_conf.getint('result-buffer-size', fallback=500)
+
+        p = itsdb.ItsdbProfile(itemdir)
+        # clear previous files
+        _clear_itsdb_file(p.root, infotbl, True)
+        _clear_itsdb_file(p.root, rslttbl, True)
 
         with task.processor(
                 os.path.expanduser(task_conf['grammar']),
                 executable=task_conf['ace-bin'],
                 cmdargs=_get_cmdargs(task_conf)) as ap:
-
-            p = itsdb.ItsdbProfile(itemdir)
-            p.write_table(infotbl, [])  # clear
-            p.write_table(rslttbl, [])  # clear
 
             inforows = []
             resultrows = []
@@ -313,13 +326,14 @@ def do_task(taskname, args):
                     resultrows.append(dict(
                         source_ids +
                         [(f, result[f]) for f in task.out_fields] +
-                        [('score', score)]
+                        [(task.prefix + '-id', i),
+                         ('score', score)]
                     ))
 
                 if len(resultrows) >= bufsize:
                     logging.debug('Writing intermediate results to disk.')
-                    p.write_table(infotbl, inforows, append=True)
-                    p.write_table(rslttbl, resultrows, append=True)
+                    p.write_table(infotbl, inforows, append=True, gzip=True)
+                    p.write_table(rslttbl, resultrows, append=True, gzip=True)
                     inforows = []
                     resultrows = []
 
