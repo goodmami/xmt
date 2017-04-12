@@ -52,30 +52,38 @@ from delphin import itsdb
 
 __version__ = '0.1.0'
 
-defaults = {
-    'ace-bin': 'ace',
-    'num-results': 5,
-    'timeout': 60,
-    'max-chart-megabytes': 1200,
-    'max-unpack-megabytes': 1500,
-    'result-buffer-size': 1000,
+default_config = {
+    'DEFAULT': {
+        'ace-bin': 'ace',
+        'num-results': 5,
+        'timeout': 60,
+        'result-buffer-size': 1000,
+    },
+    'parse': {
+        'max-chart-megabytes': 1200,
+        'max-unpack-megabytes': 1500,
+    },
+    'transfer': {},
+    'generate': {},
 }
 
 _TaskDefinition = namedtuple(
-    'TaskDefinition', ('processor', 'prefix', 'in_table', 'in_field',
+    'TaskDefinition', ('processor', 'cmdargs', 'tsdbinfo',
+                       'prefix', 'in_table', 'in_field',
                        'id_fields', 'out_fields')
 )
 
 tasks = {
     'parse': _TaskDefinition(
-        ace.AceParser, 'p', 'item', 'i-input', ('i-id',), ('mrs',)
+        ace.AceParser, [], True, 'p', 'item', 'i-input', ('i-id',), ('mrs',)
     ),
     'transfer': _TaskDefinition(
-        ace.AceTransferer, 'x', 'p-result', 'mrs', ('i-id', 'p-id'), ('mrs',)
+        ace.AceTransferer, [], False, 'x', 'p-result', 'mrs', 
+        ('i-id', 'p-id'), ('mrs',)
     ),
     'generate': _TaskDefinition(
-        ace.AceGenerator, 'g', 'x-result', 'mrs', ('i-id', 'p-id', 'x-id'),
-        ('mrs', 'surface')
+        ace.AceGenerator, ['--show-realization-mrses'], False,
+        'g', 'x-result', 'mrs', ('i-id', 'p-id', 'x-id'), ('mrs', 'surface')
     ),
 }
 
@@ -157,11 +165,11 @@ def init(args):
     config = ConfigParser()
     config.read(os.path.join(d, 'default.conf'))
 
-    config['DEFAULT'] = dict(defaults)
+    config['DEFAULT'] = dict(default_config['DEFAULT'])
     _update_config(config['DEFAULT'], args, None)
 
     for task in ('parse', 'transfer', 'generate'):
-        config.setdefault(task, {})        
+        config.setdefault(task, default_config.get(task), {})
         if args['--' + task]:
             argv = [task] + shlex.split(args['--' + task])
             taskargs = docopt(USAGE, argv=argv)
@@ -297,7 +305,8 @@ def do_task(taskname, args):
         with task.processor(
                 os.path.expanduser(task_conf['grammar']),
                 executable=task_conf['ace-bin'],
-                cmdargs=_get_cmdargs(task_conf)) as ap:
+                cmdargs=task.cmdargs + _get_cmdargs(task_conf),
+                tsdbinfo=task.tsdbinfo) as ap:
 
             inforows = []
             resultrows = []
