@@ -1,10 +1,12 @@
 
 from itertools import groupby
 
-from nltk.translate.gleu_score import sentence_gleu as gleu
+from nltk.translate import bleu_score
 from nltk.tokenize.toktok import ToktokTokenizer
 
 _tokenize = ToktokTokenizer().tokenize
+_smoother = bleu_score.SmoothingFunction().method3
+bleu = bleu_score.sentence_bleu
 
 def select_first(p):
     """
@@ -27,8 +29,14 @@ def select_oracle(p):
     pairs = []
     rows = p.join('item', 'g-result')
     for i_id, group in groupby(rows, key=lambda row: row['g-result:i-id']):
-        hrs = ((r['g-result:surface'], r['item:i-translation']) for r in group)
-        ranked = [(gleu(_tokenize(r), _tokenize(h)), h, r) for h, r in hrs]
-        _, hyp, ref = sorted(ranked, key=lambda r: r[0])[-1]
+        scored = []
+        for res in group:
+            ref = res['item:i-translation']
+            hyp = res['g-result:surface']
+            scored.append(
+                (bleu([_tokenize(ref)], _tokenize(hyp),
+                      smoothing_function=_smoother), hyp, ref)
+            )
+        _, hyp, ref = sorted(scored, key=lambda r: r[0])[-1]
         pairs.append((hyp, ref))
     return pairs
