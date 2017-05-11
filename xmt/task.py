@@ -7,6 +7,8 @@ import logging
 from delphin.interfaces import ace
 from delphin import itsdb
 
+from xmt import util
+
 _TaskDefinition = namedtuple(
     'TaskDefinition',
     ('processor', 'cmdargs', 'tsdbinfo',
@@ -18,7 +20,7 @@ tasks = {
     'parse': _TaskDefinition(
         ace.AceParser, [], True,
         'p', 'item', 'i-input',
-        ('i-id',), ('mrs',)
+        ('i-id',), ('derivation', 'mrs')
     ),
     'transfer': _TaskDefinition(
         ace.AceTransferer, [], False,
@@ -122,7 +124,7 @@ def _item_config(section, itemdir, args):
         os.path.join(workspace, 'default.conf'),
         os.path.join(itemdir, 'run.conf')
     ])
-    _update_config(config[section], args, section)
+    util._update_config(config[section], args, section)
     return config
 
 

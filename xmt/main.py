@@ -50,7 +50,7 @@ from docopt import docopt
 
 from delphin import itsdb
 
-from xmt import task, select, evaluate
+from xmt import task, select, evaluate, util
 
 __version__ = '0.2.0'
 
@@ -85,6 +85,7 @@ p-info:
 p-result:
   i-id :integer :key                    # item parsed
   p-id :integer :key                    # parse result id
+  derivation :string                    # derivation tree for this reading
   mrs :string                           # mrs for this reading
   score :float                          # parse reranker score
 
@@ -148,14 +149,14 @@ def init(args):
     config.read(os.path.join(d, 'default.conf'))
 
     config['DEFAULT'] = dict(default_config['DEFAULT'])
-    _update_config(config['DEFAULT'], args, None)
+    util._update_config(config['DEFAULT'], args, None)
 
     for task in ('parse', 'transfer', 'generate'):
-        config.setdefault(task, default_config.get(task), {})
+        config.setdefault(task, default_config.get(task, {}))
         if args['--' + task]:
             argv = [task] + shlex.split(args['--' + task])
             taskargs = docopt(USAGE, argv=argv)
-            _update_config(config[task], taskargs, task)
+            util._update_config(config[task], taskargs, task)
 
     for item in args['ITEM']:
         item = os.path.normpath(item)
@@ -205,24 +206,6 @@ def _unique_pathname(d, bn):
         i += 1
         fn = os.path.join(d, bn + '.' + str(i))
     return fn
-
-
-def _update_config(cfg, args, task):
-    if args['--ace-bin'] is not None:
-        cfg['ace-bin'] = args['--ace-bin']
-    if args['-g'] is not None:
-        cfg['grammar'] = args['-g']
-    if args['-n'] is not None:
-        cfg['num-results'] = args['-n']
-    if args['--timeout'] is not None:
-        cfg['timeout'] = args['--timeout']
-    if task == 'parse':
-        if args['--max-chart-megabytes'] is not None:
-            cfg['max-chart-megabytes'] = args['--max-chart-megabytes']
-        if args['--max-unpack-megabytes'] is not None:
-            cfg['max-unpack-megabytes'] = args['--max-unpack-megabytes']
-    if task == 'generate':
-        cfg['only-subsuming'] = 'yes' if args['--only-subsuming'] else 'no'
 
 
 def validate(args):
