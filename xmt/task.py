@@ -32,6 +32,11 @@ tasks = {
         'g', 'x-result', 'mrs',
         ('i-id', 'p-id', 'x-id'), ('mrs', 'surface')
     ),
+    'rephrase': _TaskDefinition(
+        ace.AceGenerator, ['--show-realization-mrses'], False,
+        'r', 'p-result', 'mrs',
+        ('i-id', 'p-id'), ('mrs', 'surface')
+    )
 }
 
 

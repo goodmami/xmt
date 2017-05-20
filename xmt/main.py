@@ -4,22 +4,27 @@ USAGE="""
 XMT
 
 usage:
-  xmt init      [--parse=OPTS] [--transfer=OPTS] [--generate=OPTS]
-                [--ace-bin=PATH] [-v...] DIR [ITEM...]
-  xmt parse     [-g PATH] [--ace-bin=PATH] [-n N] [--timeout=S]
-                [--max-chart-megabytes=M] [--max-unpack-megabytes=M]
-                [-v...] [ITEM...]
-  xmt transfer  [-g PATH] [--ace-bin=PATH] [-n N] [--timeout=S]
-                [-v...] [ITEM...]
-  xmt generate  [-g PATH] [--ace-bin=PATH] [-n N] [--timeout=S]
-                [--only-subsuming] [-v...] [ITEM...]
+  xmt init      [-v...] [--parse=OPTS] [--transfer=OPTS] [--generate=OPTS]
+                [--rephrase=OPTS] [--full] [--ace-bin=PATH] DIR [ITEM...]
+  xmt parse     [-v...] [ITEM...]
+  xmt transfer  [-v...] [ITEM...]
+  xmt generate  [-v...] [ITEM...]
+  xmt rephrase  [-v...] [ITEM...]
   xmt evaluate  [--coverage] [--bleu] [--oracle-bleu] [--all]
                 [-v...] [ITEM...]
   xmt [--help|--version]
 
+Tasks:
+  init                      create/modify workspace and import profiles
+  parse                     analyze input strings with source grammar
+  transfer                  transfer source to target semantics
+  generate                  realize strings from target semantics
+  rephrase                  realize strings from source semantics
+  evaluate                  evaluate results of other tasks
+
 Arguments:
-  DIR
-  ITEM
+  DIR                       workspace directory
+  ITEM                      profile to process
 
 Options:
   -h, --help                print usage and exit
@@ -28,7 +33,18 @@ Options:
   --parse OPTS              configure parsing with OPTS
   --transfer OPTS           configure transfer with OPTS
   --generate OPTS           configure generation with OPTS
+  --rephrase OPTS           configure rephrasing with OPTS
+  --full                    import full profiles, not just item info
   --ace-bin PATH            path to ace binary [default=ace]
+
+"""
+
+OPTS_USAGE="""
+Usage: task -g PATH [-n N] [--timeout S]
+            [--max-chart-megabytes=M] [--max-unpack-megabytes=M]
+            [--only-subsuming]
+
+Options:
   -g PATH                   path to a grammar image
   -n N                      only record the top N results [default=5]
   --timeout S               allow S seconds per item [default=60]
@@ -60,13 +76,14 @@ default_config = {
         'num-results': 5,
         'timeout': 60,
         'result-buffer-size': 1000,
-    },
-    'parse': {
         'max-chart-megabytes': 1200,
         'max-unpack-megabytes': 1500,
+        'only-subsuming': 'no',
     },
+    'parse': {},
     'transfer': {},
     'generate': {},
+    'rephrase': {},
 }
 
 
@@ -90,33 +107,48 @@ p-result:
   score :float                          # parse reranker score
 
 x-info:
-  i-id :integer :key
-  p-id :integer :key
-  time :integer
-  memory :integer
+  i-id :integer :key                    # item parsed
+  p-id :integer :key                    # parse result id
+  time :integer                         # processing time (msec)
+  memory :integer                       # bytes of memory allocated
 
 x-result:
-  i-id :integer :key
-  p-id :integer :key
-  x-id :integer :key
+  i-id :integer :key                    # item parsed
+  p-id :integer :key                    # parse result id
+  x-id :integer :key                    # transfer result id
   mrs :string                           # transferred mrs
   score :float                          # transfer reranker score
 
 g-info:
-  i-id :integer :key
-  p-id :integer :key
-  x-id :integer :key
-  time :integer
-  memory :integer
+  i-id :integer :key                    # item parsed
+  p-id :integer :key                    # parse result id
+  x-id :integer :key                    # transfer result id
+  time :integer                         # processing time (msec)
+  memory :integer                       # bytes of memory allocated
 
 g-result:
-  i-id :integer :key
-  p-id :integer :key
-  x-id :integer :key
-  g-id :integer :key
+  i-id :integer :key                    # item parsed
+  p-id :integer :key                    # parse result id
+  x-id :integer :key                    # transfer result id
+  g-id :integer :key                    # generation result id
   surface :string                       # realization string
   mrs :string                           # specified mrs used in realization
   score :float                          # realization reranker score
+
+r-info:
+  i-id :integer :key                    # item parsed
+  p-id :integer :key                    # parse result id
+  time :integer                         # processing time (msec)
+  memory :integer                       # bytes of memory allocated
+
+r-result:
+  i-id :integer :key                    # item parsed
+  p-id :integer :key                    # parse result id
+  r-id :integer :key                    # rephrase result id
+  surface :string                       # realization string
+  mrs :string                           # specified mrs used in realization
+  score :float                          # parse reranker score
+
 '''
 
 
@@ -138,6 +170,8 @@ def main():
         task.do('transfer', args)
     elif args['generate']:
         task.do('generate', args)
+    elif args['rephrase']:
+        task.do('rephrase', args)
     elif args['evaluate']:
         evaluate.do(args)
 
@@ -151,12 +185,16 @@ def init(args):
     config['DEFAULT'] = dict(default_config['DEFAULT'])
     util._update_config(config['DEFAULT'], args, None)
 
-    for task in ('parse', 'transfer', 'generate'):
+    for task in ('parse', 'transfer', 'generate', 'rephrase'):
         config.setdefault(task, default_config.get(task, {}))
         if args['--' + task]:
-            argv = [task] + shlex.split(args['--' + task])
-            taskargs = docopt(USAGE, argv=argv)
+            argv = shlex.split(args['--' + task])
+            taskargs = docopt(OPTS_USAGE, argv=argv)
             util._update_config(config[task], taskargs, task)
+
+    # default rephrase grammar to parse grammar
+    if 'grammar' not in config['rephrase'] and 'grammar' in config['parse']:
+        config['rephrase']['grammar'] = config['parse']['grammar']
 
     for item in args['ITEM']:
         item = os.path.normpath(item)
@@ -167,6 +205,10 @@ def init(args):
             print(relations_string, file=fh)
         p = itsdb.ItsdbProfile(itemdir)
         p.write_table('item', rows, gzip=True)
+        if args['--full']:
+            info, results = _parse_tables(item)
+            p.write_table('p-info', info, gzip=True)
+            p.write_table('p-result', results, gzip=True)
 
     with open(os.path.join(d, 'default.conf'), 'w') as fh:
         config.write(fh)
@@ -199,6 +241,33 @@ def item_rows(item):
     return rows
 
 
+def _parse_tables(item):
+    info, results = [], []
+    makeinfo = lambda a, b, c: {
+        'i-id': a, 'time': b, 'memory': c
+    }
+    makeresult = lambda a, b, c, d, e: {
+        'i-id': a, 'p-id': b, 'derivation': c, 'mrs': d, 'score': e
+    }
+    if os.path.isdir(item):
+        p = itsdb.ItsdbProfile(item)
+        fn = os.path.join(p.root, 'parse')
+        if os.path.isfile(fn) or os.path.isfile(fn + '.gz'):
+            for row in p.read_table('parse'):
+                info.append(makeinfo(row['i-id'], row['total'], row['others']))
+        fn = os.path.join(p.root, 'result')
+        if os.path.isfile(fn) or os.path.isfile(fn + '.gz'):
+            for row in p.join('parse', 'result'):
+                results.append(makeresult(
+                    row['parse:i-id'], row['result:result-id'],
+                    row['result:derivation'], row['result:mrs'],
+                    '1.0'  # for now
+                    ))
+    else:
+        raise ValueError('Only profiles allowed with --full: ' + str(item))
+    return info, results
+
+
 def _unique_pathname(d, bn):
     fn = os.path.join(d, bn)
     i = 0
@@ -213,6 +282,7 @@ def validate(args):
     p_opts = docopt(ACE_OPTS_USAGE, argv=args['--parse'] or '')
     t_opts = docopt(ACE_OPTS_USAGE, argv=args['--transfer'] or '')
     g_opts = docopt(ACE_OPTS_USAGE, argv=args['--generate'] or '')
+    g_opts = docopt(ACE_OPTS_USAGE, argv=args['--rephrase'] or '')
 
 
 def prepare_workspace_dir(d):

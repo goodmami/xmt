@@ -1,17 +1,18 @@
 
 def _update_config(cfg, args, task):
-    if args['--ace-bin'] is not None:
-        cfg['ace-bin'] = args['--ace-bin']
-    if args['-g'] is not None:
-        cfg['grammar'] = args['-g']
-    if args['-n'] is not None:
-        cfg['num-results'] = args['-n']
-    if args['--timeout'] is not None:
-        cfg['timeout'] = args['--timeout']
+    print(args)
+    if args.get('--ace-bin') is not None:
+        cfg['ace-bin'] = args.get('--ace-bin')
+    if args.get('-g') is not None:
+        cfg['grammar'] = args.get('-g')
+    if args.get('-n') is not None:
+        cfg['num-results'] = args.get('-n')
+    if args.get('--timeout') is not None:
+        cfg['timeout'] = args.get('--timeout')
     if task == 'parse':
-        if args['--max-chart-megabytes'] is not None:
-            cfg['max-chart-megabytes'] = args['--max-chart-megabytes']
-        if args['--max-unpack-megabytes'] is not None:
-            cfg['max-unpack-megabytes'] = args['--max-unpack-megabytes']
+        if args.get('--max-chart-megabytes') is not None:
+            cfg['max-chart-megabytes'] = args.get('--max-chart-megabytes')
+        if args.get('--max-unpack-megabytes') is not None:
+            cfg['max-unpack-megabytes'] = args.get('--max-unpack-megabytes')
     if task == 'generate':
-        cfg['only-subsuming'] = 'yes' if args['--only-subsuming'] else 'no'
+        cfg['only-subsuming'] = 'yes' if args.get('--only-subsuming') else 'no'
