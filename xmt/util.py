@@ -1,6 +1,5 @@
 
 def _update_config(cfg, args, task):
-    print(args)
     if args.get('--ace-bin') is not None:
         cfg['ace-bin'] = args.get('--ace-bin')
     if args.get('-g') is not None:
