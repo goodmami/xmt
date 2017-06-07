@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+
+import re
+
+import docopt
+
+from delphin.mrs.xmrs import Dmrs
+from delphin.mrs.components import Pred, var_sort, var_id
+from delphin.mrs.penman import XMRSCodec
+
+USAGE = '''
+Usage: make-transer-rules ALIGNMENTS
+
+Arguments:
+  ALIGNMENTS                file containing aligned MRS subgraphs
+
+Options:
+  -h, --help                display this help and exit
+'''
+
+codec = XMRSCodec()
+
+def main():
+    args = docopt.docopt(USAGE)
+
+    for meta, inp, out in read_alignments(args['ALIGNMENTS']):
+        print(make_transfer_rule(inp, out, meta=meta))
+        print()  # blank line between entries
+
+def read_alignments(path):
+    for meta, s in _alignment_groups(open(path)):
+        sgs = list(codec.iterdecode(s))
+        if len(sgs) != 2:
+            raise Exception('Aligned subgraphs must be in pairs.')
+        inp, out = sgs
+        yield meta, inp, out
+
+def _alignment_groups(f):
+    meta = []
+    lines = []
+    try:
+        line = next(f).strip()
+        while True:
+            while line == '':
+                line = next(f).strip()
+            while line.startswith('#'):
+                meta.append(line.lstrip('# :'))
+                line = next(f).strip()
+            while line != '':
+                lines.append(line)
+                line = next(f).strip()
+            if lines:
+                yield meta, '\n'.join(lines)
+                meta = []
+                lines = []
+    except (StopIteration, IOError, OSError):
+        pass
+    if lines:
+        yield meta, '\n'.join(lines)
+
+def make_transfer_rule(inp, out, meta=None):
+    x1 = rebuild_xmrs(inp)
+    x2 = rebuild_xmrs(out)
+    x1map, x2map = map_shared_variables(x1, x2)
+
+    lines = []
+    lines.extend('; ' + m for m in (meta or []))
+    lines.append(make_identifier(x1, x2) + ' := monotonic_omtr &')
+    
+    rels, hcons = make_definition(x1, x1map, prefix='ja:')
+    lines.append('[ INPUT.RELS < {} >,'.format(rels))
+    if hcons:
+        lines.append('  INPUT.HCONS < {} >,'.format(hcons))
+
+    rels, hcons = make_definition(x2, x2map)
+    lines.append('  OUTPUT.RELS < {} >'.format(rels))#.replace('[ PRED', '+copy+ & [ PRED')))
+    if hcons:
+        lines[-1] += ','
+        lines.append('  OUTPUT.HCONS < {} > ].'.format(hcons))
+    else:
+        lines[-1] += ' ].'
+
+    return '\n'.join(lines)
+
+
+def rebuild_xmrs(g):
+    triples = []
+    for t in g.triples():
+        triples.append(t)
+        if t.relation == 'predicate':
+            v = t.source
+            triples.append((t.source, 'cvarsort', var_sort(t.source)))
+    return Dmrs.from_triples(triples, remap_nodeids=False)
+
+
+def map_shared_variables(x1, x2):
+    x1nids = x1.nodeids()
+    x2nids = x2.nodeids()
+    i = max(var_id(v) for v in (x1.variables() + x2.variables())) + 1
+    x1map, x2map = {}, {}
+    for nid in set(x1nids).intersection(x2nids):
+        x1ep = x1.ep(nid)
+        x2ep = x2.ep(nid)
+        v = var_sort(x1ep.iv) + str(i)
+        i += 1
+        x1map[x1ep.iv] = v
+        x2map[x2ep.iv] = v
+        v = x1map.get(x1ep.label, x2map.get(x2ep.label, None))
+        if v is None:
+            v = 'h' + str(i)
+            i += 1
+        x1map[x1ep.label] = v
+        x2map[x2ep.label] = v
+
+    return x1map, x2map
+
+def make_identifier(x1, x2):
+    x1_preds = [p.short_form() for p in x1.preds()]
+    x2_preds = [p.short_form() for p in x2.preds()]
+    return '{}--{}--omtr'.format('+'.join(x1_preds), '+'.join(x2_preds))
+
+def make_definition(x, vmap, prefix=None):
+    # make indices to filter unlinked entities
+    targets = set(tgt for nid in x.nodeids()
+                      for role, tgt in x.outgoing_args(nid).items())
+    qeqs = dict((hc.hi, hc.lo) for hc in x.hcons() if hc.hi in targets)
+    targets.update(qeqs.values())
+    targets.update(vmap.keys())
+
+    # build more minimal EPs and HCONS
+    rels = []
+    hcons = []
+    for ep in x.eps():
+        iv = ep.iv
+        label = ep.label
+        attrs = []
+        if label in targets:
+            attrs.append('LBL #' + vmap.get(label, label))
+        if iv in targets:
+            attrs.append('ARG0 #' + vmap.get(iv, iv))
+        for role, tgt in x.outgoing_args(ep.nodeid).items():
+            attrs.append('{} #{}'.format(role, vmap.get(tgt, tgt)))
+            if tgt in qeqs:
+                lo = qeqs[tgt]
+                hcons.append('qeq & [ HARG #{}, LARG #{} ]'.format(tgt, vmap.get(lo, lo)))
+
+        attrs = ', '.join([''] + attrs) if attrs else ''
+
+        if prefix is not None:
+            pred = '"{}"'.format(prefix + ep.pred.string.strip('"'))
+        else:
+            pred = ep.pred.string
+        rels.append('[ PRED {}{} ]'.format(pred, attrs))
+
+    return ' ,\n               '.join(rels), ', '.join(hcons)
+
+#
+# TODO:
+#  - properties on newly introduced preds (e.g. 1 to 2 mappings) (later)
+#  - +copy+ only on individually aligned preds; list those first
+
+if __name__ == '__main__':
+    main()
