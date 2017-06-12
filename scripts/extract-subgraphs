@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+
+# the make_graph() function is adapted from the mrs-to-penman project:
+#   Project: https://github.com/goodmami/mrs-to-penman
+#   License: https://github.com/goodmami/mrs-to-penman/blob/master/LICENSE
+
+USAGE = '''
+Usage: extract-subgraphs [--parameters=PATH] [--itsdb]
+                         [--parse-result=N] [--max-depth=N]
+                         PROFILE...
+
+Arguments:
+  PROFILE                   an XMT or [incr tsdb()] profile
+
+Options:
+  -h, --help                display this help and exit
+  --parameters PATH         JSON file of conversion parameters
+  --max-depth N             extract subgraphs to a depth of N [default: 3]
+  --itsdb                   use the [incr tsdb()] profile schema
+  --parse-result N          extract from the Nth parse result [default: 0]
+
+'''
+
+import re
+import json
+
+import docopt
+
+from delphin.mrs import xmrs, simplemrs, penman
+from delphin.mrs.components import var_sort
+from delphin import itsdb
+
+EncodeError = penman.penman.EncodeError
+Triple = penman.penman.Triple
+Graph = penman.penman.Graph
+
+def xmrs_relation_sort(triples):
+    return sorted(
+        triples,
+        key=lambda t: (
+            t.inverted,
+            t.relation.isupper(),
+            t.relation == 'RSTR-H',
+            [int(t) if t.isdigit() else t 
+             for t in re.split(r'([0-9]+)', t.relation or '')]
+        )
+    )
+
+
+codec = penman.XMRSCodec(indent=2, relation_sort=xmrs_relation_sort)
+
+
+def main():
+    args = docopt.docopt(USAGE)
+
+    params = None
+    if args['--parameters']:
+        params = json.load(open(args['--parameters']))
+
+    rows = itsdb_rows if args['--itsdb'] else xmt_rows
+    maxdepth = int(args['--max-depth'])
+
+    n = 0
+    for profile in args['PROFILE']:
+        p = itsdb.ItsdbProfile(profile)
+        for i_id, p_id, mrs in rows(p):
+            if p_id == args['--parse-result']:
+                print('# ::id ' + i_id)
+                print('# ::result ' + p_id)
+
+                x = simplemrs.loads_one(mrs)
+                g = make_graph(x, params)                    
+
+                # try:
+                #     print(codec.encode(g))
+                # except EncodeError as ex:
+                #     pass  # TODO: log warning
+
+                for sg in extract_subgraphs(g, maxdepth):
+                    try:
+                        print(codec.encode(sg))
+                    except EncodeError as ex:
+                        pass  # TODO: log warning
+
+                print()
+                if n >= 5:
+                    return
+                n += 1
+
+
+def xmt_rows(p):
+    return p.select('p-result', ('i-id', 'p-id', 'mrs'))
+
+
+def itsdb_rows(p):
+    return itsdb.select_rows(
+        ('parse:i-id', 'result:result-id', 'result:mrs'),
+        p.join('parse', 'result')
+    )
+
+
+def make_graph(x, params):
+    # first create a graph to get normalized triples
+    g = codec.triples_to_graph(xmrs.Dmrs.to_triples(x, properties=True))
+
+    # then filter if necessary
+    if params:
+        varsort = dict((ep.nodeid, var_sort(ep.intrinsic_variable))
+                       for ep in x.eps())
+        preds = dict((nid, x.pred(nid).short_form()) for nid in x.nodeids())
+        drop = set(params.get('drop_nodes', []))
+        allow = params.get('allow_relations', {})
+        global_allow = set(allow.get('global', []))
+        x_allow = set(allow.get('x', []))
+        e_allow = set(allow.get('e', []))
+        pred_allow = allow.get('predicate', {})
+        ts = [
+            t for t in g.triples()
+            if (preds.get(t.source) not in drop and
+                (t.relation in global_allow or
+                 (varsort.get(t.source) == 'x' and t.relation in x_allow) or
+                 (varsort.get(t.source) == 'e' and t.relation in e_allow) or
+                 (t.relation in pred_allow.get(preds.get(t.source), []))))
+        ]
+        top = g.top if g.top in [t.source for t in ts] else None
+        g = codec.triples_to_graph(ts, top=top)
+
+    return g
+
+
+def extract_subgraphs(g, maxdepth):
+    seen = set()
+    for root in g.variables():
+        ids = _traverse(g, root, maxdepth)
+        sgdepth = max(d for _, d in ids)
+        for depth in range(sgdepth + 1):
+            yield frontier(g, [i for i, d in ids if d <= depth])
+
+
+def _traverse(g, top, maxdepth, depth=0):
+    vs = [(top, depth)]
+    if depth >= maxdepth:
+        return vs
+    for t in g.edges(source=top):
+        if t.relation == 'RSTR-H' or t.relation.endswith('-EQ'):
+            continue
+        vs.extend(_traverse(g, t.target, maxdepth, depth+1))
+    for t in g.edges(target=top):
+        if t.relation == 'RSTR-H' or t.relation.endswith('-EQ'):
+            vs.extend(_traverse(g, t.source, maxdepth, depth+1))
+    return vs
+
+def frontier(g, ids):
+    # print(codec.encode(g))
+    # print(ids)
+    idset = set(ids)
+    idmap = dict(zip(ids, range(len(ids))))
+    ivmap = dict((t.source, t.target)
+                 for t in g.attributes(relation='cvarsort'))
+    var = lambda i: ivmap.get(i, 'u') + str(idmap[i])
+    triples = []
+    for t in g.attributes():
+        if t.source in idset and t.relation != 'cvarsort':
+            triples.append(
+                Triple(var(t.source), t.relation, t.target, False)
+            )
+    for t in g.edges():
+        if t.source in idset and t.target in idset:
+            inverted = t.relation == 'RSTR-H' or t.relation.endswith('-EQ')
+            triples.append(
+                Triple(var(t.source), t.relation, var(t.target), inverted)
+            )
+    return Graph(triples, top=var(ids[0]))
+
+
+if __name__ == '__main__':
+    main()
