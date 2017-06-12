@@ -47,7 +47,7 @@ def xmrs_relation_sort(triples):
     )
 
 
-codec = penman.XMRSCodec(indent=2, relation_sort=xmrs_relation_sort)
+codec = penman.XMRSCodec(indent=False, relation_sort=xmrs_relation_sort)
 
 
 def main():
@@ -146,8 +146,13 @@ def _traverse(g, top, maxdepth, depth=0):
             continue
         vs.extend(_traverse(g, t.target, maxdepth, depth+1))
     for t in g.edges(target=top):
-        if t.relation == 'RSTR-H' or t.relation.endswith('-EQ'):
+        if t.relation.endswith('-EQ'):
             vs.extend(_traverse(g, t.source, maxdepth, depth+1))
+    # do this separate from the -EQ ones so it's at the end of the list;
+    # this is to help ensure the variable ID is the highest number
+    # because I serialize the quantifiers on a node last
+    for t in g.edges(target=top, relation='RSTR-H'):
+        vs.extend(_traverse(g, t.source, maxdepth, depth+1))
     return vs
 
 def frontier(g, ids):
