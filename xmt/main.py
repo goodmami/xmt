@@ -5,7 +5,8 @@ XMT
 
 usage:
   xmt init      [-v...] [--parse=OPTS] [--transfer=OPTS] [--generate=OPTS]
-                [--rephrase=OPTS] [--full] [--ace-bin=PATH] DIR [ITEM...]
+                [--rephrase=OPTS] [--full] [--reverse] [--ace-bin=PATH]
+                DIR [ITEM...]
   xmt parse     [-v...] [ITEM...]
   xmt transfer  [-v...] [ITEM...]
   xmt generate  [-v...] [ITEM...]
@@ -35,6 +36,7 @@ Options:
   --generate OPTS           configure generation with OPTS
   --rephrase OPTS           configure rephrasing with OPTS
   --full                    import full profiles, not just item info
+  --reverse                 switch input and translation sentences
   --ace-bin PATH            path to ace binary [default=ace]
 
 """
@@ -198,7 +200,7 @@ def init(args):
 
     for item in args['ITEM']:
         item = os.path.normpath(item)
-        rows = item_rows(item)
+        rows = item_rows(item, args['--reverse'])
         itemdir = _unique_pathname(d, os.path.basename(item))
         os.makedirs(itemdir)
         with open(os.path.join(itemdir, 'relations'), 'w') as fh:
@@ -214,30 +216,38 @@ def init(args):
         config.write(fh)
 
 
-def item_rows(item):
-    rows = []
-    makerow = lambda a, b, c: {
-        'i-id': a, 'i-input': b, 'i-length': len(b.split()), 'i-translation': c
-    }
+def item_rows(item, reverse=False):
+    data = []
     if os.path.isdir(item):
         p = itsdb.ItsdbProfile(item)
         output_fn = os.path.join(p.root, 'output')
         if ((os.path.isfile(output_fn) or os.path.isfile(output_fn + '.gz'))
                 and len(list(p.read_table('output'))) > 0):
             for row in p.join('item', 'output'):
-                rows.append(makerow(row['item:i-id'], row['item:i-input'],
-                                    row['output:o-surface']))
+                data.append((
+                    row['item:i-id'],
+                    row['item:i-input'],
+                    row['output:o-surface']
+                ))
         else:
-            rows.extend(
-                makerow(a, b, c) for a, b, c in p.select(
-                    'item', ['i-id', 'i-input', 'i-translation'])
-            )
+            data.extend(p.select('item', ['i-id', 'i-input', 'i-translation']))
     elif os.path.isfile(item):
         for i, line in enumerate(open(item)):
             src, tgt = line.split('\t')
-            rows.append(makerow((i+1)*10, src.rstrip(), tgt.rstrip()))
+            data.append(((i+1)*10, src.rstrip(), tgt.rstrip()))
     else:
         raise ValueError('Invalid item: ' + str(item))
+
+    rows = []
+    for i_id, src, tgt in data:
+        if reverse:
+            src, tgt = tgt, src
+        rows.append({
+            'i-id': i_id,
+            'i-input': src,
+            'i-length': len(src.split()),
+            'i-translation': tgt
+        })
     return rows
 
 
