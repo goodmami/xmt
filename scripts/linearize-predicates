@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+
+USAGE = '''
+Usage: linearize-predicates [--parameters=PATH] [--parse-result=N]
+                            [--surface-sort] PROFILE1 [PROFILE2]
+
+Arguments:
+  PROFILE1                  the source profile
+  PROFILE2                  if given, the target profile
+
+Options:
+  -h, --help                display this help and exit
+  --parameters PATH         JSON file of parameters (currently only the
+                            'drop_nodes' key is used)
+  --parse-result N          linearize from the Nth parse result [default: 0]
+  --surface-sort            re-sort the predicates by their surface order
+'''
+
+import json
+
+import docopt
+
+from delphin import itsdb
+from delphin.mrs import simplemrs
+
+from util import rows, aligned_rows, predlist
+
+
+def main():
+    args = docopt.docopt(USAGE)
+
+    dropset = set()
+    if args['--parameters']:
+        params = json.load(open(args['--parameters']))
+        dropset.update(params.get('drop_nodes', []))
+
+    pid = args['--parse-result']
+    sortkey = surface_sort_key if args['--surface-sort'] else None
+
+    p1 = itsdb.ItsdbProfile(args['PROFILE1'])
+    if args['PROFILE2']:
+        p2 = itsdb.ItsdbProfile(args['PROFILE2'])
+        for i_id, p_id, mrs1, mrs2 in aligned_rows(p1, p2, pid=pid):
+            x1 = simplemrs.loads_one(mrs1)
+            x2 = simplemrs.loads_one(mrs2)
+            print(
+                '{}\t{}'.format(
+                    ' '.join(predlist(x1, dropset, sortkey)),
+                    ' '.join(predlist(x2, dropset, sortkey))
+                )
+            )
+    else:
+        for i_id, p_id, mrs in rows(p1):
+            x = simplemrs.loads_one(mrs)
+            print(' '.join(predlist(x, dropset, sortkey)))
+
+
+def surface_sort_key(ep):
+    return (ep.cfrom, -ep.cto)
+
+
+if __name__ == '__main__':
+    main()
