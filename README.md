@@ -127,3 +127,4 @@ my-ws/mrs:
 [ACE]: http://sweaglesw.org/linguistics/ace
 [Jacy]: https://github.com/delph-in/jacy
 [ERG]: http://moin.delph-in.net/ErgTop
+[JaEn]: https://github.com/delph-in/jaen

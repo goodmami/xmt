@@ -1,0 +1,4 @@
+docopt >= 0.6.1
+pydelphin == 0.6.2
+penman == 0.6.1
+nltk >= 3.2.2
