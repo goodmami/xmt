@@ -5,34 +5,49 @@
 #   License: https://github.com/goodmami/mrs-to-penman/blob/master/LICENSE
 
 USAGE = '''
-Usage: extract-subgraphs [--parameters=PATH] [--itsdb]
-                         [--parse-result=N] [--max-depth=N]
-                         PROFILE...
+Usage: extract-subgraphs [--parameters=PATH] [--parse-result=N]
+                         [--alignments=PATH] [--max-depth=N]
+                         PROFILE1 [PROFILE2]
 
 Arguments:
-  PROFILE                   an XMT or [incr tsdb()] profile
+  PROFILE1                  an XMT or [incr tsdb()] profile
+  PROFILE2                  if given, a parallel profile to PROFILE1;
+                            extract matching bilingual subgraphs
 
 Options:
   -h, --help                display this help and exit
   --parameters PATH         JSON file of conversion parameters
-  --max-depth N             extract subgraphs to a depth of N [default: 3]
-  --itsdb                   use the [incr tsdb()] profile schema
   --parse-result N          extract from the Nth parse result [default: 0]
+  --alignments PATH         extract subgraphs from bilingual alignments;
+                            supersedes --max-depth value; assumes 2
+                            profiles are given
 
 '''
 
+import sys
+import os
 import re
 import json
+from collections import Counter
+from itertools import product, combinations
 
 import docopt
 
-from delphin.mrs import xmrs, simplemrs, penman
+from delphin.mrs import xmrs, simplemrs, penman, query
 from delphin.mrs.components import var_sort
 from delphin import itsdb
+
+from util import rows, aligned_rows, predlist, read_anymalign_model
 
 EncodeError = penman.penman.EncodeError
 Triple = penman.penman.Triple
 Graph = penman.penman.Graph
+
+
+_DEFAULT_MAXDEPTH = 3
+_DEFAULT_MIN_SIZE_RATIO = 0.1
+_DEFAULT_MAX_SIZE_RATIO = 10
+
 
 def xmrs_relation_sort(triples):
     return sorted(
@@ -53,56 +68,190 @@ codec = penman.XMRSCodec(indent=False, relation_sort=xmrs_relation_sort)
 def main():
     args = docopt.docopt(USAGE)
 
-    params = None
+    params = {}
     if args['--parameters']:
         params = json.load(open(args['--parameters']))
 
-    rows = itsdb_rows if args['--itsdb'] else xmt_rows
-    maxdepth = int(args['--max-depth'])
+    pid = args['--parse-result']
 
-    n = 0
-    for profile in args['PROFILE']:
-        p = itsdb.ItsdbProfile(profile)
-        for i_id, p_id, mrs in rows(p):
-            if p_id == args['--parse-result']:
-                print('# ::id ' + i_id)
-                print('# ::result ' + p_id)
+    source = itsdb.ItsdbProfile(args['PROFILE1'])
 
-                x = simplemrs.loads_one(mrs)
-                g = make_graph(x, params)                    
+    if args['PROFILE2']:
+        target = itsdb.ItsdbProfile(args['PROFILE2'])
+        if args['--alignments']:
+            alns = load_alignments(
+                args['--alignments'],
+                params.get('alignments', {})
+            )
+            data = extract_aligned_subgraphs(
+                source, target, pid, alns, params
+            )
+        else:
+            data = extract_bilingual_subgraphs(
+                source, target, pid, params
+            )
+    else:
+        data = extract_monolingual_subgraphs(
+            source, pid, params
+        )
 
-                # try:
-                #     print(codec.encode(g))
-                # except EncodeError as ex:
-                #     pass  # TODO: log warning
+    graph_filter = make_graph_filters(params.get('alignments', {}))
 
-                for sg in extract_subgraphs(g, maxdepth):
-                    try:
-                        print(codec.encode(sg))
-                    except EncodeError as ex:
-                        pass  # TODO: log warning
-
+    for i_id, p_id, gs in data:
+        for g1, g2, d in filter(graph_filter, gs):
+            try:
+                lin_g1 = codec.encode(g1)
+                lin_g2 = None
+                if g2 is not None:  # None for single-profile extraction
+                    lin_g2 = codec.encode(g2)
+                meta = [('id', i_id), ('result', p_id)]
+                meta.extend(sorted(d.items()))
+                print('# ' + ' '.join('::{} {}'.format(k, v) for k, v in meta))
+                print(lin_g1)
+                if lin_g2:
+                    print(lin_g2)
                 print()
-                if n >= 5:
-                    return
-                n += 1
+            except EncodeError as ex:
+                pass  # TODO: log warning
 
 
-def xmt_rows(p):
-    return p.select('p-result', ('i-id', 'p-id', 'mrs'))
+def extract_aligned_subgraphs(source, target, pid, alignments, params):
+    graphparams = params.get('graphs', {})
+    dropset = set(graphparams.get('drop_nodes', []))
+    for i_id, p_id, mrs1, mrs2 in aligned_rows(source, target, pid=pid):
+        x1 = simplemrs.loads_one(mrs1)
+        x2 = simplemrs.loads_one(mrs2)
+        g1 = make_graph(x1, graphparams)
+        g2 = make_graph(x2, graphparams)
+        x1_counts = Counter(predlist(x1, dropset))
+        x2_counts = Counter(predlist(x2, dropset))
+
+        g1_idkey = dict(
+            (x[0], i) for i, x in enumerate(_traverse(g1, g1.top, -1))
+        )
+        g2_idkey = dict(
+            (x[0], i) for i, x in enumerate(_traverse(g2, g2.top, -1))
+        )
+        if len(g1.variables()) > len(g1_idkey):
+            continue  # g1 is probably disconnected
+        if len(g2.variables()) > len(g2_idkey):
+            continue  # g2 is probably disconnected
+
+        gs = []
+        for src_sig, tgts in alignments.items():
+            # make sure source mrs is compatible
+            if any(x1_counts[pred] < count for pred, count in src_sig):
+                continue
+            src_sgs = list(build_subgraphs_from_pred_sig(g1, src_sig, g1_idkey, graphparams))
+            if not src_sgs:
+                continue
+
+            for tgt_sig, weights in tgts.items():
+                # make sure target mrs is compatible
+                if any(x2_counts[pred] < count for pred, count in tgt_sig):
+                    continue
+                tgt_sgs = list(build_subgraphs_from_pred_sig(g2, tgt_sig, g2_idkey, graphparams))
+                if not tgt_sgs:
+                    continue
+
+                lexwts, transprobs, freq = weights
+                data = {
+                    'lexical-weight': lexwts,
+                    'translation-probability': transprobs[0],
+                    'frequency': freq
+                }
+
+                gs.extend([(a, b, data) for a, b in product(src_sgs, tgt_sgs)])
+
+        yield (i_id, p_id, gs)
 
 
-def itsdb_rows(p):
-    return itsdb.select_rows(
-        ('parse:i-id', 'result:result-id', 'result:mrs'),
-        p.join('parse', 'result')
-    )
+def extract_bilingual_subgraphs(source, target, pid, params):
+    graphparams = params.get('graphs', {})
+    maxdepth = graphparams.get('maximum-depth', _DEFAULT_MAXDEPTH)
+    for i_id, p_id, mrs1, mrs2 in aligned_rows(source, target, pid=pid):
+        x1 = simplemrs.loads_one(mrs1)
+        x2 = simplemrs.loads_one(mrs2)
+        g1 = make_graph(x1, graphparams)
+        g2 = make_graph(x2, graphparams)
+        sgs1 = list(enumerate_subgraphs(g1, maxdepth))
+        sgs2 = list(enumerate_subgraphs(g2, maxdepth))
+        gs = [(sg1, sg2, {}) for sg1 in sgs1 for sg2 in sgs2]
+        yield (i_id, p_id, gs)
+
+
+def extract_monolingual_subgraphs(source, pid, params):
+    graphparams = params.get('graphs', {})
+    maxdepth = graphparams.get('maximum-depth', _DEFAULT_MAXDEPTH)
+    for i_id, p_id, mrs in rows(source):
+        x = simplemrs.loads_one(mrs)
+        g = make_graph(x, graphparams)
+        gs = [(g, None, {}) for g in enumerate_subgraphs(g, maxdepth)]
+        yield (i_id, p_id, gs)
+
+
+def load_alignments(path, params):
+    model = {}
+    min_freq = params.get('minimum-frequency', 0)
+    min_lexwt = params.get('minimum-lexical-weight')
+    min_tprob = params.get('minimum-translation-probability')
+    mdl = read_anymalign_model(path)
+    for src, tgtdata in mdl.items():
+        for tgt, lexwts, transprobs, freq in tgtdata:
+            # simple filtering of the model
+            if freq < min_freq:
+                continue
+            if (min_lexwt is not None and lexwts is not None and
+                    (lexwts[0] < min_lexwt or lexwts[1] < min_lexwt)):
+                continue
+            if (min_tprob is not None and
+                    (transprobs[0] < min_tprob or transprobs[1] < min_tprob)):
+                continue
+            # add to the model
+            src = tuple(sorted(Counter(src).items()))
+            tgt = tuple(sorted(Counter(tgt).items()))
+            if src not in model:
+                model[src] = {}
+            model[src][tgt] = (lexwts, transprobs, freq)
+
+    return model
+
+
+def pred_sig_to_predlist(sig):
+    predlist = []
+    for pred, count in sig:
+        predlist.extend([pred] * count)
+    return predlist
+
+
+def build_subgraphs_from_pred_sig(g, sig, idkey, params):
+    ids = dict((pred, []) for pred, _ in sig)
+    for t in g.attributes(relation='predicate'):
+        if t.target in ids:
+            ids[t.target].append(t.source)
+
+    for _ids in _node_combinations(ids, list(sig)):
+        _ids = sorted(_ids, key=idkey.__getitem__)
+        makevar = _make_makevar(g, _ids)
+        ts = frontier(g, _ids)
+        yield relabel_ids(Graph(ts, top=_ids[0]), makevar)
+
+
+def _node_combinations(d, ps):
+    if not ps:
+        return [[]]
+    pred, count = ps.pop()
+    ids = [
+        _ids + list(__ids)
+        for _ids in _node_combinations(d, ps)
+        for __ids in combinations(d[pred], count)
+    ]
+    return ids
 
 
 def make_graph(x, params):
     # first create a graph to get normalized triples
     g = codec.triples_to_graph(xmrs.Dmrs.to_triples(x, properties=True))
-
     # then filter if necessary
     if params:
         varsort = dict((ep.nodeid, var_sort(ep.intrinsic_variable))
@@ -128,54 +277,103 @@ def make_graph(x, params):
     return g
 
 
-def extract_subgraphs(g, maxdepth):
+def enumerate_subgraphs(g, maxdepth):
     seen = set()
     for root in g.variables():
         ids = _traverse(g, root, maxdepth)
+
+        makevar = _make_makevar(g, [i for i, _ in ids])
+    
         sgdepth = max(d for _, d in ids)
         for depth in range(sgdepth + 1):
-            yield frontier(g, [i for i, d in ids if d <= depth])
+            _ids = [i for i, d in ids if d <= depth]
+            triples = frontier(g, _ids)
+            yield relabel_ids(Graph(triples, top=_ids[0]), makevar)
 
 
-def _traverse(g, top, maxdepth, depth=0):
-    vs = [(top, depth)]
-    if depth >= maxdepth:
-        return vs
-    for t in g.edges(source=top):
-        if t.relation == 'RSTR-H' or t.relation.endswith('-EQ'):
-            continue
-        vs.extend(_traverse(g, t.target, maxdepth, depth+1))
-    for t in g.edges(target=top):
-        if t.relation.endswith('-EQ'):
-            vs.extend(_traverse(g, t.source, maxdepth, depth+1))
-    # do this separate from the -EQ ones so it's at the end of the list;
-    # this is to help ensure the variable ID is the highest number
-    # because I serialize the quantifiers on a node last
-    for t in g.edges(target=top, relation='RSTR-H'):
-        vs.extend(_traverse(g, t.source, maxdepth, depth+1))
+def _traverse(g, top, maxdepth, remaining=None, depth=0):
+    if remaining is None:
+        remaining = set(g.variables())
+    vs = []
+    if top in remaining and depth != maxdepth:
+        vs.append((top, depth))
+        remaining.remove(top)
+        for t in g.edges(source=top):
+            if t.relation == 'RSTR-H' or t.relation.endswith('-EQ'):
+                continue
+            vs.extend(_traverse(g, t.target, maxdepth, remaining, depth+1))
+        for t in g.edges(target=top):
+            if t.relation.endswith('-EQ'):
+                vs.extend(_traverse(g, t.source, maxdepth, remaining, depth+1))
+        # do this separate from the -EQ ones so it's at the end of the list;
+        # this is to help ensure the variable ID is the highest number
+        # because I serialize the quantifiers on a node last
+        for t in g.edges(target=top, relation='RSTR-H'):
+            vs.extend(_traverse(g, t.source, maxdepth, remaining, depth+1))
     return vs
+
+
+def _make_makevar(g, ids):
+    idmap = dict(zip(ids, range(len(ids))))
+    ivmap = dict((t.source, t.target)
+                 for t in g.attributes(relation='cvarsort'))
+    return lambda i, ivm=ivmap, idm=idmap: ivm.get(i, 'u') + str(idm[i])
+
 
 def frontier(g, ids):
     # print(codec.encode(g))
     # print(ids)
     idset = set(ids)
-    idmap = dict(zip(ids, range(len(ids))))
-    ivmap = dict((t.source, t.target)
-                 for t in g.attributes(relation='cvarsort'))
-    var = lambda i: ivmap.get(i, 'u') + str(idmap[i])
     triples = []
     for t in g.attributes():
         if t.source in idset and t.relation != 'cvarsort':
             triples.append(
-                Triple(var(t.source), t.relation, t.target, False)
+                Triple(t.source, t.relation, t.target, False)
             )
     for t in g.edges():
         if t.source in idset and t.target in idset:
             inverted = t.relation == 'RSTR-H' or t.relation.endswith('-EQ')
             triples.append(
-                Triple(var(t.source), t.relation, var(t.target), inverted)
+                Triple(t.source, t.relation, t.target, inverted)
+
             )
-    return Graph(triples, top=var(ids[0]))
+    return triples
+
+
+def relabel_ids(g, var):
+    triples = []
+    for t in g.attributes():
+        if t.relation != 'cvarsort':
+            triples.append(
+                Triple(var(t.source), t.relation, t.target, False)
+            )
+    for t in g.edges():
+        triples.append(
+            Triple(var(t.source), t.relation, var(t.target), t.inverted)
+        )
+    return Graph(triples, top=var(g.top))
+
+
+def make_graph_filters(params):
+    same_top_var = params.get('same-top-variable-type', False)
+    min_ratio = params.get('minimum-graph-size-ratio', _DEFAULT_MIN_SIZE_RATIO)
+    max_ratio = params.get('maximum-graph-size-ratio', _DEFAULT_MAX_SIZE_RATIO)
+
+    def graph_filter(gs):
+        g1, g2, d = gs
+
+        if same_top_var and var_sort(g1.top) != var_sort(g2.top):
+            return False
+        
+        g1_len = len(g1.variables())
+        g2_len = len(g2.variables())
+        ratio = float(g1_len) / g2_len
+        if not min_ratio <= ratio <= max_ratio:
+            return False
+
+        return True
+
+    return graph_filter
 
 
 if __name__ == '__main__':
