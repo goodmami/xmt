@@ -31,7 +31,7 @@ def main():
 
     dropset = set()
     if args['--parameters']:
-        params = json.load(open(args['--parameters']))
+        params = json.load(open(args['--parameters'])).get('graphs', {})
         dropset.update(params.get('drop_nodes', []))
 
     pid = args['--parse-result']
