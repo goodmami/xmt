@@ -6,8 +6,7 @@
 
 USAGE = '''
 Usage: extract-subgraphs [--parameters=PATH] [--parse-result=N]
-                         [--alignments=PATH] [--max-depth=N]
-                         PROFILE1 [PROFILE2]
+                         [--alignments=PATH] PROFILE1 [PROFILE2]
 
 Arguments:
   PROFILE1                  an XMT or [incr tsdb()] profile
@@ -19,8 +18,7 @@ Options:
   --parameters PATH         JSON file of conversion parameters
   --parse-result N          extract from the Nth parse result [default: 0]
   --alignments PATH         extract subgraphs from bilingual alignments;
-                            supersedes --max-depth value; assumes 2
-                            profiles are given
+                            assumes 2 profiles are given
 
 '''
 
@@ -104,7 +102,7 @@ def main():
                 lin_g2 = None
                 if g2 is not None:  # None for single-profile extraction
                     lin_g2 = codec.encode(g2)
-                meta = [('id', i_id), ('result', p_id)]
+                meta = [('id', i_id), ('res', p_id), ('count', 1)]
                 meta.extend(sorted(d.items()))
                 print('# ' + ' '.join('::{} {}'.format(k, v) for k, v in meta))
                 print(lin_g1)
@@ -156,9 +154,9 @@ def extract_aligned_subgraphs(source, target, pid, alignments, params):
 
                 lexwts, transprobs, freq = weights
                 data = {
-                    'lexical-weight': lexwts,
-                    'translation-probability': transprobs[0],
-                    'frequency': freq
+                    'lexwts': lexwts,
+                    'transprobs': transprobs,
+                    'freq': freq
                 }
 
                 gs.extend([(a, b, data) for a, b in product(src_sgs, tgt_sgs)])
