@@ -27,19 +27,21 @@ def main():
     args = docopt.docopt(USAGE)
 
     d = {}
-    for meta, s in read_subgraph_file(open(path)):
-        count = dict(meta).get('count', 1)
+    for meta, s in read_subgraph_file(open(args['SGFILE'])):
+        count = int(dict(meta).get('count', 1))
         d[s] = d.get(s, 0) + count
 
     seen = set()
-    for meta, s in read_subgraph_file(open(path)):
+    for meta, s in read_subgraph_file(open(args['SGFILE'])):
         if s in seen:
             continue
+        seen.add(s)
         meta = [(k, str(d[s]) if k == 'count' else v) for k, v in meta]
         meta = ['::{}'.format(k) if v is None else '::{} {}'.format(k, v)
                 for k, v in meta]
         print(' '.join(['#'] + meta))
         print(s)
+        print()
 
 if __name__ == '__main__':
     main()
