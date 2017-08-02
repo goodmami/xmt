@@ -40,3 +40,7 @@ def main():
                 for k, v in meta]
         print(' '.join(['#'] + meta))
         print(s)
+
+if __name__ == '__main__':
+    main()
+
