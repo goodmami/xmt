@@ -153,9 +153,13 @@ def extract_aligned_subgraphs(source, target, pid, alignments, params):
                     continue
 
                 lexwts, transprobs, freq = weights
+                if lexwts is None:
+                    lexwts = (None, None)
                 data = {
-                    'lexwts': lexwts,
-                    'transprobs': transprobs,
+                    'src-lexwt': lexwts[0],
+                    'tgt-lexwt': lexwts[1],
+                    'src-tprob': transprobs[0],
+                    'tgt-tprob': transprobs[1],
                     'freq': freq
                 }
 

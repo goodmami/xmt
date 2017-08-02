@@ -1,4 +1,5 @@
 
+import re
 from collections import defaultdict
 
 from delphin import itsdb
@@ -65,3 +66,31 @@ def read_anymalign_model(path):
         model[src].append((tgt, lexwts, transprobs, freq))
     return model
 
+
+def read_subgraph_file(f):
+    meta_re = re.compile(r'::([^ ]+)(?: ((?:(?!::).)*)|$)')
+    meta = []
+    lines = []
+    try:
+        line = next(f).strip()
+        while True:
+            while line == '':
+                line = next(f).strip()
+            while line.startswith('#'):
+                for key, value in meta_re.findall(line.lstrip('#')):
+                    value = value.strip()
+                    if value == '':
+                        value = None
+                    meta.append((key, value))
+                line = next(f).strip()
+            while line != '':
+                lines.append(line)
+                line = next(f).strip()
+            if lines:
+                yield meta, '\n'.join(lines)
+                meta = []
+                lines = []
+    except (StopIteration, IOError, OSError):
+        pass
+    if lines:
+        yield meta, '\n'.join(lines)

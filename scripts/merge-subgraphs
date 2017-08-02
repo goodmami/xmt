@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+
+import re
+
+import docopt
+
+from delphin.mrs.xmrs import Dmrs
+from delphin.mrs.components import Pred, var_sort, var_id
+from delphin.mrs.penman import XMRSCodec
+
+from util import read_subgraph_file
+
+USAGE = '''
+Usage: merge-subgraphs SGFILE
+
+Arguments:
+  SGFILE                    file containing aligned MRS subgraphs
+
+Options:
+  -h, --help                display this help and exit
+'''
+
+codec = XMRSCodec()
+
+
+def main():
+    args = docopt.docopt(USAGE)
+
+    d = {}
+    for meta, s in read_subgraph_file(open(path)):
+        count = dict(meta).get('count', 1)
+        d[s] = d.get(s, 0) + count
+
+    seen = set()
+    for meta, s in read_subgraph_file(open(path)):
+        if s in seen:
+            continue
+        meta = [(k, str(d[s]) if k == 'count' else v) for k, v in meta]
+        meta = ['::{}'.format(k) if v is None else '::{} {}'.format(k, v)
+                for k, v in meta]
+        print(' '.join(['#'] + meta))
+        print(s)

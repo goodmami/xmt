@@ -8,6 +8,8 @@ from delphin.mrs.xmrs import Dmrs
 from delphin.mrs.components import Pred, var_sort, var_id
 from delphin.mrs.penman import XMRSCodec
 
+from util import read_subgraph_file
+
 USAGE = '''
 Usage: make-transer-rules ALIGNMENTS
 
@@ -27,36 +29,15 @@ def main():
         print(make_transfer_rule(inp, out, meta=meta))
         print()  # blank line between entries
 
+
 def read_alignments(path):
-    for meta, s in _alignment_groups(open(path)):
+    for meta, s in read_subgraph_file(open(path)):
         sgs = list(codec.iterdecode(s))
         if len(sgs) != 2:
             raise Exception('Aligned subgraphs must be in pairs.')
         inp, out = sgs
         yield meta, inp, out
 
-def _alignment_groups(f):
-    meta = []
-    lines = []
-    try:
-        line = next(f).strip()
-        while True:
-            while line == '':
-                line = next(f).strip()
-            while line.startswith('#'):
-                meta.append(line.lstrip('# :'))
-                line = next(f).strip()
-            while line != '':
-                lines.append(line)
-                line = next(f).strip()
-            if lines:
-                yield meta, '\n'.join(lines)
-                meta = []
-                lines = []
-    except (StopIteration, IOError, OSError):
-        pass
-    if lines:
-        yield meta, '\n'.join(lines)
 
 def make_transfer_rule(inp, out, meta=None):
     x1 = rebuild_xmrs(inp)
