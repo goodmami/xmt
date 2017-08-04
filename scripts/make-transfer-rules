@@ -45,7 +45,9 @@ def make_transfer_rule(inp, out, meta=None):
     x1map, x2map = map_shared_variables(x1, x2)
 
     lines = []
-    lines.extend('; ' + m for m in (meta or []))
+    lines.append(
+        '; ' + ' '.join('{}={}'.format(k, v) for k, v in (meta or []))
+    )
     lines.append(make_identifier(x1, x2) + ' := monotonic_omtr &')
     
     rels, hcons = make_definition(x1, x1map, prefix='ja:')
@@ -96,11 +98,13 @@ def map_shared_variables(x1, x2):
     return x1map, x2map
 
 def make_identifier(x1, x2):
-    x1_preds = [p.short_form() for p in x1.preds()]
-    x2_preds = [p.short_form() for p in x2.preds()]
+    def get_id(ep):
+        return ep.carg if ep.carg is not None else ep.pred.short_form()
+    x1_preds = list(map(get_id, x1.eps()))
+    x2_preds = list(map(get_id, x2.eps()))
     return '{}--{}--omtr'.format('+'.join(x1_preds), '+'.join(x2_preds))
 
-def make_definition(x, vmap, prefix=None):
+def make_definition(x, vmap, prefix=''):
     # make indices to filter unlinked entities
     targets = set(tgt for nid in x.nodeids()
                       for role, tgt in x.outgoing_args(nid).items())
@@ -124,13 +128,12 @@ def make_definition(x, vmap, prefix=None):
             if tgt in qeqs:
                 lo = qeqs[tgt]
                 hcons.append('qeq & [ HARG #{}, LARG #{} ]'.format(tgt, vmap.get(lo, lo)))
+        if ep.carg is not None:
+            attrs.append('CARG "{}"'.format(ep.carg))
 
         attrs = ', '.join([''] + attrs) if attrs else ''
 
-        if prefix is not None:
-            pred = '"{}"'.format(prefix + ep.pred.string.strip('"'))
-        else:
-            pred = ep.pred.string
+        pred = '"{}_rel"'.format(prefix + ep.pred.string.strip('"'))
         rels.append('[ PRED {}{} ]'.format(pred, attrs))
 
     return ' ,\n               '.join(rels), ', '.join(hcons)
