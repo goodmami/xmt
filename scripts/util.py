@@ -16,19 +16,16 @@ def rows(p):
         raise Exception('Invalid profile: ' + str(p.root))
 
 
-def aligned_rows(p1, p2, pid=None):
-    # it doesn't make much sense to align pid for both profiles;
-    # consider doing a many-to-many mapping across profiles
+def aligned_rows(p1, pid1, p2, pid2):
     p1_mrss = {}
     for i_id, p_id, mrs in rows(p1):
-        if pid is None or p_id == pid:
-            p1_mrss[(i_id, p_id)] = mrs
+        if p_id == pid1:
+            p1_mrss[i_id] = mrs
     for i_id, p_id, mrs in rows(p2):
-        if (pid is None or p_id == pid) and (i_id, p_id) in p1_mrss:
+        if (p_id == pid2) and i_id in p1_mrss:
             yield (
                 i_id,
-                p_id,
-                p1_mrss[(i_id, p_id)],
+                p1_mrss[i_id],
                 mrs
             )
 

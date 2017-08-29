@@ -56,7 +56,14 @@ def main():
 
 
 def surface_sort_key(ep):
-    return (ep.cfrom, -ep.cto)
+    p = ep.pred.short_form()
+    return (
+        ep.cfrom,  # first by starting position
+        -ep.cto,   # reversed by ending position
+        -ep.is_quantifier(),  # quantifiers come first
+        p.startswith('_'),    # then abstract, followed by surface preds
+        p          # finally do alphabetic sort to resolve ties
+    )
 
 
 if __name__ == '__main__':

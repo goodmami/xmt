@@ -5,8 +5,9 @@
 #   License: https://github.com/goodmami/mrs-to-penman/blob/master/LICENSE
 
 USAGE = '''
-Usage: extract-subgraphs [--parameters=PATH] [--parse-result=N]
-                         [--alignments=PATH] PROFILE1 [PROFILE2]
+Usage: extract-subgraphs [--parameters=PATH] [--alignments=PATH]
+                         [--source-result-id=N] [--target-result-id=N]
+                         PROFILE1 [PROFILE2]
 
 Arguments:
   PROFILE1                  an XMT or [incr tsdb()] profile
@@ -16,7 +17,8 @@ Arguments:
 Options:
   -h, --help                display this help and exit
   --parameters PATH         JSON file of conversion parameters
-  --parse-result N          extract from the Nth parse result [default: 0]
+  --source-result-id N      extract from the Nth source result [default: 0]
+  --target-result-id N      extract from the Nth target result [default: 0]
   --alignments PATH         extract subgraphs from bilingual alignments;
                             assumes 2 profiles are given
 
@@ -70,7 +72,8 @@ def main():
     if args['--parameters']:
         params = json.load(open(args['--parameters']))
 
-    pid = args['--parse-result']
+    tpid = args['--target-result-id']
+    spid = args['--source-result-id']
 
     source = itsdb.ItsdbProfile(args['PROFILE1'])
 
@@ -82,27 +85,34 @@ def main():
                 params.get('alignments', {})
             )
             data = extract_aligned_subgraphs(
-                source, target, pid, alns, params
+                source, spid, target, tpid, alns, params
             )
         else:
             data = extract_bilingual_subgraphs(
-                source, target, pid, params
+                source, spid, target, tpid, params
             )
     else:
         data = extract_monolingual_subgraphs(
-            source, pid, params
+            source, spid, params
         )
 
     graph_filter = make_graph_filters(params.get('alignments', {}))
 
-    for i_id, p_id, gs in data:
+    commonfeats = [('count', 1)]
+    if args['PROFILE2']:
+        commonfeats.extend([('src-res-id', spid), ('tgt-res-id', tpid)])
+    else:
+        commonfeats.append(('res-id', spid))
+
+
+    for i_id, gs in data:
         for g1, g2, d in filter(graph_filter, gs):
             try:
                 lin_g1 = codec.encode(g1)
                 lin_g2 = None
                 if g2 is not None:  # None for single-profile extraction
                     lin_g2 = codec.encode(g2)
-                meta = [('id', i_id), ('res', p_id), ('count', 1)]
+                meta = [('id', i_id)] + commonfeats
                 meta.extend(sorted(d.items()))
                 print('# ' + ' '.join('::{} {}'.format(k, v) for k, v in meta))
                 print(lin_g1)
@@ -113,10 +123,10 @@ def main():
                 pass  # TODO: log warning
 
 
-def extract_aligned_subgraphs(source, target, pid, alignments, params):
+def extract_aligned_subgraphs(source, spid, target, tpid, alignments, params):
     graphparams = params.get('graphs', {})
     dropset = set(graphparams.get('drop_nodes', []))
-    for i_id, p_id, mrs1, mrs2 in aligned_rows(source, target, pid=pid):
+    for i_id, mrs1, mrs2 in aligned_rows(source, spid, target, tpid):
         x1 = simplemrs.loads_one(mrs1)
         x2 = simplemrs.loads_one(mrs2)
         g1 = make_graph(x1, graphparams)
@@ -165,13 +175,13 @@ def extract_aligned_subgraphs(source, target, pid, alignments, params):
 
                 gs.extend([(a, b, data) for a, b in product(src_sgs, tgt_sgs)])
 
-        yield (i_id, p_id, gs)
+        yield (i_id, gs)
 
 
-def extract_bilingual_subgraphs(source, target, pid, params):
+def extract_bilingual_subgraphs(source, spid, target, tpid, params):
     graphparams = params.get('graphs', {})
     maxdepth = graphparams.get('maximum-depth', _DEFAULT_MAXDEPTH)
-    for i_id, p_id, mrs1, mrs2 in aligned_rows(source, target, pid=pid):
+    for i_id, mrs1, mrs2 in aligned_rows(source, spid, target, tpid):
         x1 = simplemrs.loads_one(mrs1)
         x2 = simplemrs.loads_one(mrs2)
         g1 = make_graph(x1, graphparams)
@@ -179,17 +189,19 @@ def extract_bilingual_subgraphs(source, target, pid, params):
         sgs1 = list(enumerate_subgraphs(g1, maxdepth))
         sgs2 = list(enumerate_subgraphs(g2, maxdepth))
         gs = [(sg1, sg2, {}) for sg1 in sgs1 for sg2 in sgs2]
-        yield (i_id, p_id, gs)
+        yield (i_id, gs)
 
 
 def extract_monolingual_subgraphs(source, pid, params):
     graphparams = params.get('graphs', {})
     maxdepth = graphparams.get('maximum-depth', _DEFAULT_MAXDEPTH)
     for i_id, p_id, mrs in rows(source):
+        if p_id != pid:
+            continue
         x = simplemrs.loads_one(mrs)
         g = make_graph(x, graphparams)
         gs = [(g, None, {}) for g in enumerate_subgraphs(g, maxdepth)]
-        yield (i_id, p_id, gs)
+        yield (i_id, gs)
 
 
 def load_alignments(path, params):
@@ -301,6 +313,9 @@ def _traverse(g, top, maxdepth, remaining=None, depth=0):
         vs.append((top, depth))
         remaining.remove(top)
         for t in g.edges(source=top):
+            # debugging
+            # if t.relation == 'R':
+            #     raise Exception('{}, {}, {}'.format(t.source ,t.relation, t.target))
             if t.relation == 'RSTR-H' or t.relation.endswith('-EQ'):
                 continue
             vs.extend(_traverse(g, t.target, maxdepth, remaining, depth+1))
