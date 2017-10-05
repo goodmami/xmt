@@ -30,16 +30,14 @@ def aligned_rows(p1, pid1, p2, pid2):
             )
 
 
-def predlist(x, dropset=None, sortkey=None):
+def predlist(x, dropset=None, get_eps=None):
     if dropset is None:
         dropset = set()
 
     def blacklist(pred):
         return pred not in dropset
 
-    eps = x.eps()
-    if sortkey is not None:
-        eps = sorted(eps, key=sortkey)
+    eps = x.eps() if get_eps is None else get_eps(x)
 
     return list(filter(blacklist, [ep.pred.short_form() for ep in eps]))
 

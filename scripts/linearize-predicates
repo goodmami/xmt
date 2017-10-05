@@ -2,7 +2,7 @@
 
 USAGE = '''
 Usage: linearize-predicates [--parameters=PATH] [--parse-result=N]
-                            [--surface-sort] PROFILE1 [PROFILE2]
+                            [--sort=METHOD] PROFILE1 [PROFILE2]
 
 Arguments:
   PROFILE1                  the source profile
@@ -12,8 +12,15 @@ Options:
   -h, --help                display this help and exit
   --parameters PATH         JSON file of parameters (currently only the
                             'drop_nodes' key is used)
-  --parse-result N          linearize from the Nth parse result [default: 0]
-  --surface-sort            re-sort the predicates by their surface order
+  --source-result-id N      use the Nth source result [default: 0]
+  --target-result-id N      use the Nth target result [default: 0]
+  --sort METHOD             sort predicates by METHOD (see Sorting below);
+                            no sorting is performed by default
+
+Sorting:
+  * --sort=surface          sort by the predicate surface order
+  * --sort=semhead          sort strictly by the semantic head
+  * --sort=topology         sort topologically (non-strict semhead)
 '''
 
 import json
@@ -21,9 +28,11 @@ import json
 import docopt
 
 from delphin import itsdb
-from delphin.mrs import simplemrs
+from delphin.mrs import simplemrs, xmrs
 
 from util import rows, aligned_rows, predlist
+
+TOPNID = 0
 
 
 def main():
@@ -34,37 +43,52 @@ def main():
         params = json.load(open(args['--parameters'])).get('graphs', {})
         dropset.update(params.get('drop_nodes', []))
 
-    pid = args['--parse-result']
-    sortkey = surface_sort_key if args['--surface-sort'] else None
+    srid = args['--source-result-id']
+    trid = args['--target-result-id']
+    get_eps = {
+        'surface': surface_sort,
+        'semhead': semhead_sort,
+        'topology': topology_sort,
+    }.get(args['--sort'])
 
     p1 = itsdb.ItsdbProfile(args['PROFILE1'])
     if args['PROFILE2']:
         p2 = itsdb.ItsdbProfile(args['PROFILE2'])
-        for i_id, p_id, mrs1, mrs2 in aligned_rows(p1, p2, pid=pid):
+        for i_id, p_id, mrs1, mrs2 in aligned_rows(p1, srid, p2, trid):
             x1 = simplemrs.loads_one(mrs1)
             x2 = simplemrs.loads_one(mrs2)
             print(
                 '{}\t{}'.format(
-                    ' '.join(predlist(x1, dropset, sortkey)),
-                    ' '.join(predlist(x2, dropset, sortkey))
+                    ' '.join(predlist(x1, dropset, get_eps)),
+                    ' '.join(predlist(x2, dropset, get_eps))
                 )
             )
     else:
         for i_id, p_id, mrs in rows(p1):
             x = simplemrs.loads_one(mrs)
-            print(' '.join(predlist(x, dropset, sortkey)))
+            print(' '.join(predlist(x, dropset, get_eps)))
 
 
-def surface_sort_key(ep):
-    p = ep.pred.short_form()
-    return (
-        ep.cfrom,  # first by starting position
-        -ep.cto,   # reversed by ending position
-        -ep.is_quantifier(),  # quantifiers come first
-        p.startswith('_'),    # then abstract, followed by surface preds
-        p          # finally do alphabetic sort to resolve ties
-    )
+def surface_sort(x):
+    def key(ep):
+        p = ep.pred.short_form()
+        return (
+            ep.cfrom,  # first by starting position
+            -ep.cto,   # reversed by ending position
+            -ep.is_quantifier(),  # quantifiers come first
+            p.startswith('_'),    # then abstract, followed by surface preds
+            p          # finally do alphabetic sort to resolve ties
+        )
+    return sorted(x.eps(), key=key)
 
+def semhead_sort(x):
+    raise NotImplementedError()
+    d = xmrs.Dmrs.from_xmrs(x).to_dict()
+    top = next((l['to'] for l in d['links'] if l['from'] == TOPNID), None)
+
+
+def topology_sort(x):
+    raise NotImplementedError()
 
 if __name__ == '__main__':
     main()
