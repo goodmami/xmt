@@ -280,6 +280,7 @@ def make_graph(x, params):
         ts = [
             t for t in g.triples()
             if (preds.get(t.source) not in drop and
+                preds.get(t.target) not in drop and
                 (t.relation in global_allow or
                  (varsort.get(t.source) == 'x' and t.relation in x_allow) or
                  (varsort.get(t.source) == 'e' and t.relation in e_allow) or
