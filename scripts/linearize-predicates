@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
 USAGE = '''
-Usage: linearize-predicates [--parameters=PATH] [--parse-result=N]
-                            [--sort=METHOD] PROFILE1 [PROFILE2]
+Usage: linearize-predicates [--parameters=PATH] [--sort=METHOD]
+                            [--source-result-id=N] [--target-result-id=N]
+                            PROFILE1 [PROFILE2]
 
 Arguments:
   PROFILE1                  the source profile
