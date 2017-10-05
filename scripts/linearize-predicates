@@ -55,7 +55,7 @@ def main():
     p1 = itsdb.ItsdbProfile(args['PROFILE1'])
     if args['PROFILE2']:
         p2 = itsdb.ItsdbProfile(args['PROFILE2'])
-        for i_id, p_id, mrs1, mrs2 in aligned_rows(p1, srid, p2, trid):
+        for i_id, mrs1, mrs2 in aligned_rows(p1, srid, p2, trid):
             x1 = simplemrs.loads_one(mrs1)
             x2 = simplemrs.loads_one(mrs2)
             print(
