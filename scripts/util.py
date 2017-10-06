@@ -34,12 +34,17 @@ def predlist(x, dropset=None, get_eps=None):
     if dropset is None:
         dropset = set()
 
-    def blacklist(pred):
-        return pred not in dropset
-
     eps = x.eps() if get_eps is None else get_eps(x)
 
-    return list(filter(blacklist, [ep.pred.short_form() for ep in eps]))
+    pl = []
+    for ep in eps:
+        pred = ep.pred.short_form()
+        carg = ep.carg
+        if pred not in dropset:
+            if carg:
+                pred += '("{}")'.format(carg)
+            pl.append(pred)
+    return pl
 
 
 # NOTE: anymalign can align 2+ languages, but the following function
