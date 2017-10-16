@@ -17,10 +17,10 @@ Arguments:
 Options:
   -h, --help                display this help and exit
   --parameters PATH         JSON file of conversion parameters
-  --source-result-id N      extract from the Nth source result [default: 0]
-  --target-result-id N      extract from the Nth target result [default: 0]
-  --alignments PATH         extract subgraphs from bilingual alignments;
-                            assumes 2 profiles are given
+  --source-result-id N      use the Nth source result [default: 0]
+  --target-result-id N      use the Nth target result [default: 0]
+  --alignments PATH         use bilingual alignments at PATH;
+                            assumes PROFILE2
 
 '''
 
@@ -211,6 +211,7 @@ def load_alignments(path, params):
     min_tprob = params.get('minimum-translation-probability')
     mdl = read_anymalign_model(path)
     for src, tgtdata in mdl.items():
+        src = _clean_annotations(src)
         for tgt, lexwts, transprobs, freq in tgtdata:
             # simple filtering of the model
             if freq < min_freq:
@@ -221,6 +222,7 @@ def load_alignments(path, params):
             if (min_tprob is not None and
                     (transprobs[0] < min_tprob or transprobs[1] < min_tprob)):
                 continue
+            tgt = _clean_annotations(tgt)
             # add to the model
             src = tuple(sorted(Counter(src).items()))
             tgt = tuple(sorted(Counter(tgt).items()))
@@ -231,11 +233,26 @@ def load_alignments(path, params):
     return model
 
 
-def pred_sig_to_predlist(sig):
-    predlist = []
-    for pred, count in sig:
-        predlist.extend([pred] * count)
-    return predlist
+def _clean_annotations(preds):
+    clean = []
+    for p in preds:
+        # xmt annotations
+        p = re.sub(r'\(".*"\)$', '', p)
+        # haugereid and bond annotations
+        p = re.sub(r'@(\d+[ehipxu])*$', '', p)
+        if re.match('nmd_', p):
+            clean.append('named')
+        elif re.match('nmz_', p):
+            clean.extend(['nominalization', p])
+        else:
+            clean.append(p)
+    return tuple(clean)
+
+# def pred_sig_to_predlist(sig):
+#     predlist = []
+#     for pred, count in sig:
+#         predlist.extend([pred] * count)
+#     return predlist
 
 
 def build_subgraphs_from_pred_sig(g, sig, idkey, params):
