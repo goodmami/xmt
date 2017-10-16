@@ -42,13 +42,14 @@ Options:
 """
 
 OPTS_USAGE="""
-Usage: task -g PATH [-n N] [--timeout S]
+Usage: task -g PATH [-n N] [-y] [--timeout S]
             [--max-chart-megabytes=M] [--max-unpack-megabytes=M]
             [--only-subsuming]
 
 Options:
   -g PATH                   path to a grammar image
   -n N                      only record the top N results [default=5]
+  -y                        use yy mode on input
   --timeout S               allow S seconds per item [default=60]
   --max-chart-megabytes M   max RAM for parse chart in MB [default=1200]
   --max-unpack-megabytes M  max RAM for unpacking in MB [default=1500]
@@ -81,6 +82,7 @@ default_config = {
         'max-chart-megabytes': 1200,
         'max-unpack-megabytes': 1500,
         'only-subsuming': 'no',
+        'yy-mode': 'no',
     },
     'parse': {},
     'transfer': {},

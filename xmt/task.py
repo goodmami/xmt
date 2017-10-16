@@ -145,4 +145,6 @@ def _get_cmdargs(conf):
         cmdargs.extend(['--max-unpack-megabytes', conf['max-unpack-megabytes']])
     if not conf.getboolean('only-subsuming', fallback=False):
         cmdargs.extend(['--disable-subsumption-test'])
+    if conf.getboolean('yy-mode', fallback=False):
+        cmdargs.extend(['-y'])
     return cmdargs
