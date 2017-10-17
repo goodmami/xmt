@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+
+import statistics
+
+import docopt
+
+from delphin import itsdb, tokens
+
+USAGE = '''
+Usage: word-count [-y] [-d SPEC] PROFILES...
+
+Count the words in a corpus
+
+Arguments:
+  PROFILES                  profiles to analyze
+
+Options:
+  -h, --help                display this help and exit
+  -y                        yy tokens
+  -d SPEC                   sentence data specifier [default: item:i-input]
+'''
+
+
+def main():
+    args = docopt.docopt(USAGE)
+
+    table, cols = itsdb.get_data_specifier(args['-d'])
+    if table is None:
+        raise ValueError(
+            'Table must be specified: {}'.format(args['-d'])
+        )
+    if len(cols) != 1:
+        raise ValueError(
+            'Exactly one column must be specified: {}'.format(args['-d'])
+        )
+
+    wc = yy_len if args['-y'] else default_len
+
+    counts = []
+    for prof in args['PROFILES']:
+        p = itsdb.ItsdbProfile(prof)
+        for row in p.select(table, cols):
+            counts.append(wc(row[0]))
+
+    print(
+        'Lines:         {:>12d}\n'
+        'Words (total): {:>12d}\n'
+        'Words (min):   {:>12d}\n'
+        'Words (max):   {:>12d}\n'
+        'Words (avg):   {:>15.2f}\n'
+        'Words (stdev): {:>15.2f}'
+        .format(
+            len(counts),
+            sum(counts),
+            min(counts),
+            max(counts),
+            statistics.mean(counts),
+            statistics.stdev(counts)
+        )
+    )
+
+def yy_len(s):
+    toks = tokens.YyTokenLattice.from_string(s)
+    return len(toks)
+
+def default_len(s):
+    return len(s.split())
+
+if __name__ == '__main__':
+    main()
