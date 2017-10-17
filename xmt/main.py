@@ -235,7 +235,7 @@ def item_rows(item, reverse=False):
             data.extend(p.select('item', ['i-id', 'i-input', 'i-translation']))
     elif os.path.isfile(item):
         for i, line in enumerate(open(item)):
-            src, tgt = line.split('\t')
+            src, tgt = line.split('\t', 1)
             data.append(((i+1)*10, src.rstrip(), tgt.rstrip()))
     else:
         raise ValueError('Invalid item: ' + str(item))

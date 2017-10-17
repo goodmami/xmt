@@ -13,6 +13,7 @@ def _update_config(cfg, args, task):
             cfg['max-chart-megabytes'] = args.get('--max-chart-megabytes')
         if args.get('--max-unpack-megabytes') is not None:
             cfg['max-unpack-megabytes'] = args.get('--max-unpack-megabytes')
-        cfg['yy-mode'] = 'yes' if args.get('-y') else 'no'
+        if args.get('-y') is not None:
+            cfg['yy-mode'] = 'yes' if args.get('-y') else 'no'
     if task == 'generate':
         cfg['only-subsuming'] = 'yes' if args.get('--only-subsuming') else 'no'
