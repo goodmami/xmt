@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from collections import Counter
 import statistics
 
 import docopt
@@ -7,7 +8,7 @@ import docopt
 from delphin import itsdb, tokens
 
 USAGE = '''
-Usage: word-count [-y] [-d SPEC] PROFILES...
+Usage: word-count [-y] [-d SPEC] [--histogram] PROFILES...
 
 Count the words in a corpus
 
@@ -18,6 +19,7 @@ Options:
   -h, --help                display this help and exit
   -y                        yy tokens
   -d SPEC                   sentence data specifier [default: item:i-input]
+  --histogram               line counts per word-count
 '''
 
 
@@ -59,9 +61,15 @@ def main():
         )
     )
 
+    if args['--histogram']:
+        c = Counter(counts)
+        for wc in range(min(counts), max(counts)+1):
+            print('{}\t{}\t{}'.format(wc, c[wc], float(c[wc])/len(counts)))
+
+
 def yy_len(s):
-    toks = tokens.YyTokenLattice.from_string(s)
-    return len(toks)
+    lattice = tokens.YyTokenLattice.from_string(s)
+    return len(lattice.tokens)
 
 def default_len(s):
     return len(s.split())
