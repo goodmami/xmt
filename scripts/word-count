@@ -8,17 +8,20 @@ import docopt
 from delphin import itsdb, tokens
 
 USAGE = '''
-Usage: word-count [-y] [-d SPEC] [--histogram] PROFILES...
+Usage: word-count [-l SPEC|-w SPEC|-y SPEC] [--type] [--histogram] PROFILES...
 
-Count the words in a corpus
+Count the words in a corpus. If none of -l, -w, or -y are given, the
+default is as if -l item:i-length was provided. If -w or -y are given,
+vocabulary size is also calculated.
 
 Arguments:
   PROFILES                  profiles to analyze
 
 Options:
   -h, --help                display this help and exit
-  -y                        yy tokens
-  -d SPEC                   sentence data specifier [default: item:i-input]
+  -l SPEC                   get length field at SPEC
+  -w SPEC                   count tokens at SPEC
+  -y SPEC                   count yy tokens at SPEC
   --histogram               line counts per word-count
 '''
 
@@ -26,23 +29,37 @@ Options:
 def main():
     args = docopt.docopt(USAGE)
 
-    table, cols = itsdb.get_data_specifier(args['-d'])
+    toks = lambda i: ['a'] * int(i)  # for compatibility with other methods
+    if args['-l']:
+        spec = args['-l']
+    elif args['-w']:
+        spec = args['-w']
+        toks = lambda s: s.split()
+    elif args['-y']:
+        spec = args['-y']
+        toks = lambda s: len(tokens.YyTokenLattice.from_string(s).tokens)
+    else:
+        spec = 'item:i-length'
+
+    table, cols = itsdb.get_data_specifier(spec)
     if table is None:
         raise ValueError(
-            'Table must be specified: {}'.format(args['-d'])
+            'Table must be specified: {}'.format(spec)
         )
     if len(cols) != 1:
         raise ValueError(
-            'Exactly one column must be specified: {}'.format(args['-d'])
+            'Exactly one column must be specified: {}'.format(spec)
         )
 
-    wc = yy_len if args['-y'] else default_len
 
+    vocab = Counter()
     counts = []
     for prof in args['PROFILES']:
         p = itsdb.ItsdbProfile(prof)
         for row in p.select(table, cols):
-            counts.append(wc(row[0]))
+            ts = toks(row[0])
+            vocab.update(ts)
+            counts.append(len(ts))
 
     print(
         'Lines:         {:>12d}\n'
@@ -60,19 +77,15 @@ def main():
             statistics.stdev(counts)
         )
     )
+    if args['-w'] or args['-y']:
+        print('Vocab size:    {:>12d}\n'.format(len(vocab)))
 
     if args['--histogram']:
         c = Counter(counts)
+        print('wc\tlc\tpercent')
         for wc in range(min(counts), max(counts)+1):
             print('{}\t{}\t{}'.format(wc, c[wc], float(c[wc])/len(counts)))
 
-
-def yy_len(s):
-    lattice = tokens.YyTokenLattice.from_string(s)
-    return len(lattice.tokens)
-
-def default_len(s):
-    return len(s.split())
 
 if __name__ == '__main__':
     main()

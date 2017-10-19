@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+
+from collections import Counter, defaultdict
+import statistics
+
+import docopt
+
+from delphin import itsdb, tokens
+
+USAGE = '''
+Usage: result-count  [-l SPEC|-w SPEC|-y SPEC] [-t SPEC] [-m SPEC] [-s SPEC]
+                     [--histogram] --on=key PROFILES...
+
+Count the words in a corpus
+
+Arguments:
+  RESULTTABLE               table containing results to count
+  PROFILES                  profiles to analyze
+
+Options:
+  -h, --help                display this help and exit
+  --on key                  field key to join values on [default: i-id]
+  -l SPEC                   get length field at SPEC
+  -w SPEC                   count tokens at SPEC
+  -y SPEC                   count yy tokens at SPEC
+  -t SPEC                   get time field at SPEC [default: p-info:time]
+  -m SPEC                   get memory field at SPEC [default: p-info:memory]
+  -s SPEC                   get MRS field at SPEC [default: p-result:mrs]
+  --histogram               line counts per result-count
+'''
+
+def main():
+    args = docopt.docopt(USAGE)
+
+    if args['-l']:
+        wc_spec = args['-l']
+        wc = int
+    elif args['-w']:
+        wc_spec = args['-w']
+        wc = lambda s: len(s.split())
+    elif args['-y']:
+        wc_spec = args['-y']
+        wc = lambda s: len(tokens.YyTokenLattice.from_string(s).tokens)
+    else:
+        wc_spec = 'item:i-length'
+        wc = int
+
+    t_spec = args['-t']
+    m_spec = args['-m']
+    s_spec = args['-s']
+
+    for spec in (wc_spec, t_spec, m_spec, s_spec):
+        if not spec:
+            continue
+        table, cols = itsdb.get_data_specifier(spec)
+        if table is None:
+            raise ValueError(
+                'Table must be specified: {}'.format(spec)
+            )
+        if len(cols) != 1:
+            raise ValueError(
+                'Exactly one column must be specified: {}'.format(spec)
+            )
+
+    key = args['--on']
+
+    wcs = {}
+    ts = {}
+    ms = {}
+    ss = defaultdict(list)
+
+    for prof in args['PROFILES']:
+        p = itsdb.ItsdbProfile(prof)
+
+        # get length
+        table, cols = itsdb.get_data_specifier(wc_spec)
+        for row in p.read_table(table):
+            i_id = row[key]
+            wcs[i_id] = wc(row[cols[0]])
+
+        # get time to parse (-1 for failure)
+        table, cols = itsdb.get_data_specifier(t_spec)
+        for row in p.read_table(table):
+            i_id = row[key]
+            ts[i_id] = float(row[cols[0]])/1000
+
+        # get memory for parse (-1 for failure)
+        table, cols = itsdb.get_data_specifier(m_spec)
+        for row in p.read_table(table):
+            i_id = row[key]
+            ms[i_id] = float(row[cols[0]])/1024
+
+        # get results
+        table, cols = itsdb.get_data_specifier(s_spec)
+        for row in p.read_table(table):
+            i_id = row[key]
+            ss[i_id].append(row[cols[0]])
+
+    print(
+        '(itm) Items:              {:>12d}\n'
+        '(has) Items with Results: {:>12d}\n'
+        '(res) Total Results:      {:>12d}\n'
+        '(avg) Results/Item:       {:>15.2f}\n'
+        '(msec)Avg time/item:      {:>15.2f}\n'
+        '(kib) Avg memory/item:    {:>15.2f}'
+        .format(
+            len(wcs),
+            len(ss),
+            sum(map(len,ss.values())),
+            sum(map(len,ss.values()))/float(len(ss)),
+            sum(ts[i] for i in ss if i in ts and ts[i] != -1)/float(len(ss)),
+            sum(ms[i] for i in ss if i in ms and ms[i] != -1)/float(len(ss))
+        )
+    )
+
+    if args['--histogram']:
+        wc_itm = defaultdict(list)
+        for i_id, wc in wcs.items():
+            wc_itm[wc].append(i_id)
+        print('wc\titm\thas\tres\tavg\tmsec\tkib')
+        for wc, items in wc_itm.items():
+            has = [i for i in items if i in ss]
+            res = sum(len(ss[i]) for i in items if i in ss)
+            avg = msec = kib = '---'
+            if len(has):
+                denom = float(len(has))
+                avg = '{:.2f}'.format(res/denom)
+                msec = '{:.2f}'.format(sum(ts[i] for i in has)/denom)
+                kib = '{:.2f}'.format(sum(ms[i] for i in has)/denom)
+
+            print('{:d}\t{:d}\t{:d}\t{:d}\t{}\t{}\t{}'.format(
+                wc, len(items), len(has), res, avg, msec, kib
+            ))
+
+if __name__ == '__main__':
+    main()
