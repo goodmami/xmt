@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from collections import Counter, defaultdict
+from collections import defaultdict, namedtuple
 import statistics
 
 import docopt
@@ -9,7 +9,7 @@ from delphin import itsdb, tokens
 
 USAGE = '''
 Usage: result-count  [-l SPEC|-w SPEC|-y SPEC] [-t SPEC] [-m SPEC] [-s SPEC]
-                     [--histogram] --on=key PROFILES...
+                     [--histogram|--dump] --on=key PROFILES...
 
 Count the words in a corpus
 
@@ -27,6 +27,7 @@ Options:
   -m SPEC                   get memory field at SPEC [default: p-info:memory]
   -s SPEC                   get MRS field at SPEC [default: p-result:mrs]
   --histogram               line counts per result-count
+  --dump                    write results per line
 '''
 
 def main():
@@ -64,38 +65,47 @@ def main():
 
     key = args['--on']
 
-    wcs = {}
-    ts = {}
-    ms = {}
-    ss = defaultdict(list)
+    Result = namedtuple('Result', ('path', 'wc', 'msec', 'kib', 'mrss'))
 
+    data = []
     for prof in args['PROFILES']:
         p = itsdb.ItsdbProfile(prof)
-
+        r = Result(prof, {}, {}, {}, defaultdict(list))
+        
         # get length
         table, cols = itsdb.get_data_specifier(wc_spec)
         for row in p.read_table(table):
             i_id = row[key]
-            wcs[i_id] = wc(row[cols[0]])
+            r.wc[i_id] = wc(row[cols[0]])
 
-        # get time to parse (-1 for failure)
+        # get time to parse (-1 indicates failure)
         table, cols = itsdb.get_data_specifier(t_spec)
         for row in p.read_table(table):
             i_id = row[key]
-            ts[i_id] = float(row[cols[0]])/1000
+            msec = int(row[cols[0]])
+            if msec == -1:
+                msec = 0
+            r.msec[i_id] = msec
 
-        # get memory for parse (-1 for failure)
+        # get memory for parse (-1 indicates failure)
         table, cols = itsdb.get_data_specifier(m_spec)
         for row in p.read_table(table):
             i_id = row[key]
-            ms[i_id] = float(row[cols[0]])/1024
+            kib = float(row[cols[0]])/1024
+            if kib == -1:
+                kib = 0
+            r.kib[i_id] = kib
 
         # get results
         table, cols = itsdb.get_data_specifier(s_spec)
         for row in p.read_table(table):
             i_id = row[key]
-            ss[i_id].append(row[cols[0]])
+            r.mrss[i_id].append(row[cols[0]])
+        
+        data.append(r)
 
+    has = sum(len(r.mrss) for r in data)
+    res = sum(sum(map(len,r.mrss.values())) for r in data)
     print(
         '(itm) Items:              {:>12d}\n'
         '(has) Items with Results: {:>12d}\n'
@@ -104,33 +114,64 @@ def main():
         '(msec)Avg time/item:      {:>15.2f}\n'
         '(kib) Avg memory/item:    {:>15.2f}'
         .format(
-            len(wcs),
-            len(ss),
-            sum(map(len,ss.values())),
-            sum(map(len,ss.values()))/float(len(ss)),
-            sum(ts[i] for i in ss if i in ts and ts[i] != -1)/float(len(ss)),
-            sum(ms[i] for i in ss if i in ms and ms[i] != -1)/float(len(ss))
+            sum(len(r.wc) for r in data),
+            has,
+            res,
+            res/float(has),
+            sum(r.msec.get(i, 0) for r in data for i in r.mrss)/float(has),
+            sum(r.kib.get(i, 0) for r in data for i in r.kib)/float(has)
         )
     )
 
     if args['--histogram']:
-        wc_itm = defaultdict(list)
-        for i_id, wc in wcs.items():
-            wc_itm[wc].append(i_id)
+        wc_dict = defaultdict(int)
+        has_dict = defaultdict(int)
+        res_dict = defaultdict(int)
+        msec_dict = defaultdict(int)
+        kib_dict = defaultdict(float)
+        for r in data:
+            for i_id, wc in r.wc.items():
+                wc_dict[wc] += 1
+            for i_id, mrss in r.mrss.items():
+                wc = r.wc[i_id]
+                has_dict[wc] += 1
+                res_dict[wc] += len(mrss)
+            for i_id, m in r.msec.items():
+                wc = r.wc[i_id]
+                msec_dict[wc] += m
+            for i_id, k in r.kib.items():
+                wc = r.wc[i_id]
+                kib_dict[wc] += k
         print('wc\titm\thas\tres\tavg\tmsec\tkib')
-        for wc, items in wc_itm.items():
-            has = [i for i in items if i in ss]
-            res = sum(len(ss[i]) for i in items if i in ss)
+        for wc, items in wc_dict.items():
+            # has = [(i for i in items if i in ss]
+            # res = sum(len(ss[i]) for i in items if i in ss)
+            has = has_dict.get(wc, 0)
+            res = res_dict.get(wc, 0)
             avg = msec = kib = '---'
-            if len(has):
-                denom = float(len(has))
+            if has > 0:
+                denom = float(has)
                 avg = '{:.2f}'.format(res/denom)
-                msec = '{:.2f}'.format(sum(ts[i] for i in has)/denom)
-                kib = '{:.2f}'.format(sum(ms[i] for i in has)/denom)
+                msec = '{:.2f}'.format(msec_dict.get(wc, 0)/denom)
+                kib = '{:.2f}'.format(kib_dict.get(wc, 0.0)/denom)
 
             print('{:d}\t{:d}\t{:d}\t{:d}\t{}\t{}\t{}'.format(
-                wc, len(items), len(has), res, avg, msec, kib
+                wc, items, has, res, avg, msec, kib
             ))
+    elif args['--dump']:
+        print('id\tpath\twc\tres\tmsec\tKiB')
+        for r in data:
+            for i_id, wc in r.wc.items():
+                print(
+                    '{}\t{}\t{:d}\t{:d}\t{:d}\t{:.2f}'.format(
+                        i_id,
+                        r.path,
+                        wc,
+                        len(r.mrss.get(i_id, [])),
+                        r.msec.get(i_id, 0),
+                        r.kib.get(i_id, 0.0)
+                    )
+                )
 
 if __name__ == '__main__':
     main()
