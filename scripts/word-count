@@ -5,7 +5,8 @@ import statistics
 
 import docopt
 
-from delphin import itsdb, tokens
+from delphin.itsdb import get_data_specifier, ItsdbProfile
+from delphin.tokens import YyTokenLattice as YyTokens
 
 USAGE = '''
 Usage: word-count [-l SPEC|-w SPEC|-y SPEC] [--type] [--histogram] PROFILES...
@@ -37,11 +38,11 @@ def main():
         toks = lambda s: s.split()
     elif args['-y']:
         spec = args['-y']
-        toks = lambda s: len(tokens.YyTokenLattice.from_string(s).tokens)
+        toks = lambda s: [t.form for t in YyTokens.from_string(s).tokens]
     else:
         spec = 'item:i-length'
 
-    table, cols = itsdb.get_data_specifier(spec)
+    table, cols = get_data_specifier(spec)
     if table is None:
         raise ValueError(
             'Table must be specified: {}'.format(spec)
@@ -55,9 +56,9 @@ def main():
     vocab = Counter()
     counts = []
     for prof in args['PROFILES']:
-        p = itsdb.ItsdbProfile(prof)
+        p = ItsdbProfile(prof)
         for row in p.select(table, cols):
-            ts = toks(row[0])
+            ts = toks(row[0].lower())
             vocab.update(ts)
             counts.append(len(ts))
 
