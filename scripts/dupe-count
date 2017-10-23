@@ -82,7 +82,7 @@ def main():
         g = find_duplicates(pair, subset=('norm_src', 'norm_tgt'))
         print_summary(g, 'Paired')
         if args['-d'] or args['-D']:
-            print_duplicates(g, args['-D'])
+            print_duplicates(g, 'pair' if args['-D'] else False)
 
 
 
@@ -111,9 +111,11 @@ def print_summary(g, subset):
         .format(subset, itemcount, len(g), itemcount-len(g))
     )
 
-def print_duplicates(g, show_sents=False):
+def print_duplicates(g, show=False):
     fmt = '{0.profile}\t{0.id}'
-    if show_sents:
+    if show == 'pair':
+        fmt += '\t{0.orig_src}\t{0.orig_tgt}'
+    elif show:
         fmt += '\t{0.orig}'
     for _, group in g:
         print('\n'.join(map(fmt.format, group.itertuples())))
