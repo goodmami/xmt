@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+
+import pandas as pd
+
+import docopt
+
+from delphin import itsdb, tokens
+
+USAGE = '''
+Usage: dupe-count  (-w SPEC | -y SPEC) [-W SPEC | -Y SPEC]
+                   [--on=KEY] [-d|-D] PROFILES...
+
+Count duplicate sentences in corpora. If -W|-Y is given, also check
+the target sentence and the source/target pairs.
+
+Arguments:
+  PROFILES                  profiles to analyze
+
+Options:
+  -h, --help                display this help and exit
+  -w SPEC                   check sentence at SPEC
+  -y SPEC                   check yy-encoded sentence at SPEC
+  -W SPEC                   check target sentence at SPEC
+  -Y SPEC                   check target yy-encoded sentence at SPEC
+  --on key                  field key to pair sentences on [default: i-id]
+  -d                        print ids of duplicates
+  -D                        print ids and sentences of duplicates
+'''
+
+def main():
+    args = docopt.docopt(USAGE)
+
+    src_spec = tgt_spec = None
+    if args['-w']:
+        src_spec = args['-w']
+        get_src = get_sentence
+    elif args['-y']:
+        src_spec = args['-y']
+        get_src = get_yy
+    if args['-W']:
+        tgt_spec = args['-W']
+        get_tgt = get_sentence
+    elif args['-Y']:
+        tgt_spec = args['-Y']
+        get_tgt = get_yy
+    key = args['--on']
+
+    for spec in (src_spec, tgt_spec):
+        if not spec:
+            continue
+        table, cols = itsdb.get_data_specifier(spec)
+        if table is None:
+            raise ValueError(
+                'Table must be specified: {}'.format(spec)
+            )
+        if len(cols) != 1:
+            raise ValueError(
+                'Exactly one column must be specified: {}'.format(spec)
+            )
+
+    src = get_data(args['PROFILES'], key, src_spec, get_src)
+
+    g = find_duplicates(src)
+    print_summary(g, 'Source')
+    if args['-d'] or args['-D']:
+        print_duplicates(g, args['-D'])
+
+    tgt = None
+    if tgt_spec:
+        tgt = get_data(args['PROFILES'], key, tgt_spec, get_tgt)
+        g = find_duplicates(tgt)
+        print_summary(g, 'Target')
+        if args['-d'] or args['-D']:
+            print_duplicates(g, args['-D'])
+
+        pair = pd.merge(
+            src, tgt,
+            how='inner',
+            on=('profile', 'id'),
+            suffixes=('_src','_tgt')
+        )
+        g = find_duplicates(pair, subset=('norm_src', 'norm_tgt'))
+        print_summary(g, 'Paired')
+        if args['-d'] or args['-D']:
+            print_duplicates(g, args['-D'])
+
+
+
+def get_data(profs, key, spec, get):
+    return pd.DataFrame(
+        _get_data(profs, key, spec, get),
+        columns=('profile', 'id', 'norm', 'orig')
+    )
+
+def _get_data(profs, key, spec, get):
+    table, cols = itsdb.get_data_specifier(spec)
+    for prof in profs:
+        p = itsdb.ItsdbProfile(prof)
+        for s, _id in p.select(table, cols + [key]):
+            s = get(s)
+            yield(prof, _id, s.lower(), s)
+
+# thanks: https://stackoverflow.com/a/46629549/1441112
+def find_duplicates(df, subset=('norm',)):
+    return df[df.duplicated(subset, keep=False)].groupby(subset[0])
+
+def print_summary(g, subset):
+    itemcount = g.size().sum()
+    print(
+        '{} has {} duplicated item(s) ({} original(s), {} repeated)'
+        .format(subset, itemcount, len(g), itemcount-len(g))
+    )
+
+def print_duplicates(g, show_sents=False):
+    fmt = '{0.profile}\t{0.id}'
+    if show_sents:
+        fmt += '\t{0.orig}'
+    for _, group in g:
+        print('\n'.join(map(fmt.format, group.itertuples())))
+    print()
+
+def get_sentence(s):
+    return ' '.join(s.split())
+
+def get_yy(s):
+    return ' '.join(
+        tok.form
+        for tok in tokens.YyTokenLattice.from_string(s).tokens
+    )
+
+if __name__ == '__main__':
+    main()

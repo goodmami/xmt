@@ -14,7 +14,6 @@ Usage: result-count  [-l SPEC|-w SPEC|-y SPEC] [-t SPEC] [-m SPEC] [-s SPEC]
 Count the words in a corpus
 
 Arguments:
-  RESULTTABLE               table containing results to count
   PROFILES                  profiles to analyze
 
 Options:
