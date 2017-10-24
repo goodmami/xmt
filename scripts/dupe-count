@@ -78,13 +78,13 @@ def main():
             tgt = get_data(args['PROFILES'], key, tgt_spec, get_tgt)
 
     g = find_duplicates(src, src_ref)
-    print_summary(g, 'Source')
+    print_summary(g, 'Source', src_ref is not None)
     if args['-d'] or args['-D']:
         print_duplicates(g, args['-D'])
 
     if tgt_spec:
         g = find_duplicates(tgt, tgt_ref)
-        print_summary(g, 'Target')
+        print_summary(g, 'Target', src_ref is not None)
         if args['-d'] or args['-D']:
             print_duplicates(g, args['-D'])
 
@@ -103,7 +103,7 @@ def main():
                 suffixes=('_src', '_tgt')
             )
         g = find_duplicates(pair, pair_ref, subset=('norm_src', 'norm_tgt'))
-        print_summary(g, 'Paired')
+        print_summary(g, 'Paired', src_ref is not None)
         if args['-d'] or args['-D']:
             print_duplicates(g, 'pair' if args['-D'] else False)
 
@@ -134,11 +134,15 @@ def find_duplicates(df, ref, subset=('norm',)):
         return df[df.duplicated(subset, keep=False)].groupby(subset[0])
 
 
-def print_summary(g, subset):
+def print_summary(g, subset, against_ref=False):
     itemcount = g.size().sum()
+    if against_ref:
+        repeats = itemcount
+    else:
+        repeats = itemcount - len(g)
     print(
         '{} has {} duplicated item(s) ({} original(s), {} repeated)'
-        .format(subset, itemcount, len(g), itemcount-len(g))
+        .format(subset, itemcount, len(g), repeats)
     )
 
 def print_duplicates(g, show=False):
@@ -149,7 +153,8 @@ def print_duplicates(g, show=False):
         fmt += '\t{0.orig}'
     for _, group in g:
         print('\n'.join(map(fmt.format, group.itertuples())))
-    print()
+        print()
+    print('---')
 
 def get_sentence(s):
     return ' '.join(s.split())
