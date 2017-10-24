@@ -11,10 +11,14 @@ Usage: dupe-count  (-w SPEC | -y SPEC) [-W SPEC | -Y SPEC]
                    [--on=KEY] [-d|-D] PROFILES...
 
 Count duplicate sentences in corpora. If -W|-Y is given, also check
-the target sentence and the source/target pairs.
+the target sentence and the source/target pairs. If -- appears in the
+list of PROFILES, those before -- are taken as reference items for
+duplicate checks; e.g., 'test -- train dev' will find the items in
+train and dev that duplicate those in test.
 
 Arguments:
-  PROFILES                  profiles to analyze
+  REFPROFILES               profiles to use as reference for checks
+  PROFILES                  profiles to check for duplicates
 
 Options:
   -h, --help                display this help and exit
@@ -58,17 +62,28 @@ def main():
                 'Exactly one column must be specified: {}'.format(spec)
             )
 
-    src = get_data(args['PROFILES'], key, src_spec, get_src)
+    if '--' in args['PROFILES']:
+        i = args['PROFILES'].index('--')
+        src_ref = get_data(args['PROFILES'][:i], key, src_spec, get_src)
+        src_ref.drop_duplicates('norm', inplace=True)
+        src = get_data(args['PROFILES'][i+1:], key, src_spec, get_src)
+        if tgt_spec:
+            tgt_ref = get_data(args['PROFILES'][:i], key, tgt_spec, get_tgt)
+            tgt_ref.drop_duplicates('norm', inplace=True)
+            tgt = get_data(args['PROFILES'][i+1:], key, tgt_spec, get_tgt)
+    else:
+        src_ref = tgt_ref = None
+        src = get_data(args['PROFILES'], key, src_spec, get_src)
+        if tgt_spec:
+            tgt = get_data(args['PROFILES'], key, tgt_spec, get_tgt)
 
-    g = find_duplicates(src)
+    g = find_duplicates(src, src_ref)
     print_summary(g, 'Source')
     if args['-d'] or args['-D']:
         print_duplicates(g, args['-D'])
 
-    tgt = None
     if tgt_spec:
-        tgt = get_data(args['PROFILES'], key, tgt_spec, get_tgt)
-        g = find_duplicates(tgt)
+        g = find_duplicates(tgt, tgt_ref)
         print_summary(g, 'Target')
         if args['-d'] or args['-D']:
             print_duplicates(g, args['-D'])
@@ -79,7 +94,15 @@ def main():
             on=('profile', 'id'),
             suffixes=('_src','_tgt')
         )
-        g = find_duplicates(pair, subset=('norm_src', 'norm_tgt'))
+        pair_ref = None
+        if src_ref is not None:
+            pair_ref = pd.merge(
+                src_ref, tgt_ref,
+                how='inner',
+                on=('profile', 'id'),
+                suffixes=('_src', '_tgt')
+            )
+        g = find_duplicates(pair, pair_ref, subset=('norm_src', 'norm_tgt'))
         print_summary(g, 'Paired')
         if args['-d'] or args['-D']:
             print_duplicates(g, 'pair' if args['-D'] else False)
@@ -101,8 +124,15 @@ def _get_data(profs, key, spec, get):
             yield(prof, _id, s.lower(), s)
 
 # thanks: https://stackoverflow.com/a/46629549/1441112
-def find_duplicates(df, subset=('norm',)):
-    return df[df.duplicated(subset, keep=False)].groupby(subset[0])
+def find_duplicates(df, ref, subset=('norm',)):
+    if ref is not None:
+        return (
+            df.merge(ref, how='inner', on=subset, suffixes=('','_y'))
+            .groupby(subset[0])
+        )
+    else:
+        return df[df.duplicated(subset, keep=False)].groupby(subset[0])
+
 
 def print_summary(g, subset):
     itemcount = g.size().sum()
