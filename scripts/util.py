@@ -3,6 +3,7 @@ import re
 from collections import defaultdict
 
 from delphin import itsdb
+from delphin.mrs.components import var_re
 
 def rows(p):
     if p.exists('p-result'):
@@ -30,21 +31,55 @@ def aligned_rows(p1, pid1, p2, pid2):
             )
 
 
-def predlist(x, dropset=None, get_eps=None):
+def predlist(x, dropset=None, get_eps=None, hb=False):
     if dropset is None:
         dropset = set()
 
     eps = x.eps() if get_eps is None else get_eps(x)
 
+    nmz = set()
+    val = {}
+    if hb:
+        for ep in eps:
+            if ep.pred.short_form() == 'nominalization' and ep.cfrom != -1:
+                nmz.add((ep.cfrom,  ep.cto))
+            val[ep.nodeid] = _extract_valency(ep)
+
     pl = []
     for ep in eps:
-        pred = ep.pred.short_form()
-        carg = ep.carg
-        if pred not in dropset:
-            if carg:
-                pred += '("{}")'.format(carg)
-            pl.append(pred)
+        normpred = ep.pred.short_form()
+        pred = ep.pred.string
+        if hb:
+            if normpred == 'nominalization' or normpred.endswith('unknown'):
+                continue
+            if normpred == 'named':
+                pred = 'nmd_"{}"'.format(str(ep.carg or ''))
+            if ep.pred.pos == 'v':
+                if (ep.cfrom, ep.cto) in nmz:
+                    pred = 'nmz_' + ep.pred.string
+                pred += '@' + val[ep.nodeid]
+        elif normpred in dropset:
+            continue
+        else:
+            pred = normpred
+            if ep.carg:
+                pred += '("{}")'.format(ep.carg)
+        pl.append(pred)
     return pl
+
+# adapted from https://github.com/delph-in/jaen
+def _extract_valency(ep):
+    valencies = []
+    for role in ('ARG1', 'ARG2', 'ARG3', 'ARG4'):
+        v = ep.args.get(role)
+        if v is not None:
+            m = var_re.match(v)
+            if m is not None:
+                n = role[-1]
+                vs = m.group(1)
+                if vs not in ('u', 'i', 'p'):
+                    valencies.append(n + vs)
+    return ''.join(valencies)
 
 
 # NOTE: anymalign can align 2+ languages, but the following function

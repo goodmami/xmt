@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 USAGE = '''
-Usage: linearize-predicates [--parameters=PATH] [--sort=METHOD]
+Usage: linearize-predicates [--parameters=PATH] [--sort=METHOD] [--hb]
                             [--source-result-id=N] [--target-result-id=N]
                             PROFILE1 [PROFILE2]
 
@@ -13,6 +13,8 @@ Options:
   -h, --help                display this help and exit
   --parameters PATH         JSON file of parameters (currently only the
                             'drop_nodes' key is used)
+  --hb                      Haugereid & Bond style annotations (e.g.,
+                            pred@1x2h, nmz_verb, nmd_Abrams)
   --source-result-id N      use the Nth source result [default: 0]
   --target-result-id N      use the Nth target result [default: 0]
   --sort METHOD             sort predicates by METHOD (see Sorting below);
@@ -43,6 +45,7 @@ def main():
     if args['--parameters']:
         params = json.load(open(args['--parameters'])).get('graphs', {})
         dropset.update(params.get('drop_nodes', []))
+    hb = args['--hb']
 
     srid = args['--source-result-id']
     trid = args['--target-result-id']
@@ -60,14 +63,14 @@ def main():
             x2 = simplemrs.loads_one(mrs2)
             print(
                 '{}\t{}'.format(
-                    ' '.join(predlist(x1, dropset, get_eps)),
-                    ' '.join(predlist(x2, dropset, get_eps))
+                    ' '.join(predlist(x1, dropset, get_eps, hb)),
+                    ' '.join(predlist(x2, dropset, get_eps, hb))
                 )
             )
     else:
         for i_id, p_id, mrs in rows(p1):
             x = simplemrs.loads_one(mrs)
-            print(' '.join(predlist(x, dropset, get_eps)))
+            print(' '.join(predlist(x, dropset, get_eps, hb)))
 
 
 def surface_sort(x):
