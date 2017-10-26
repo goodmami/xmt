@@ -62,6 +62,13 @@ def predlist(x, dropset=None, get_eps=None, hb=False):
             continue
         else:
             pred = normpred
+            if pred == 'pron':
+                props = x.properties(ep.nodeid)
+                pred += '_{}.{}.{}'.format(
+                    props.get('PERS',''),
+                    props.get('NUM',''),
+                    props.get('GEND','')
+                )
             if ep.carg:
                 pred += '("{}")'.format(ep.carg)
         pl.append(pred)
