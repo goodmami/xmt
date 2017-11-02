@@ -1,12 +1,36 @@
 
+import os
 from itertools import groupby
 
 from nltk.translate import bleu_score
-from nltk.tokenize.toktok import ToktokTokenizer
+from nltk.tokenize.moses import MosesTokenizer
 
-_tokenize = ToktokTokenizer().tokenize
+from delphin import itsdb
+
+_tokenize = MosesTokenizer().tokenize
 _smoother = bleu_score.SmoothingFunction().method3
 bleu = bleu_score.sentence_bleu
+
+def do(args):
+    join_table = 'g-result'
+    hyp_spec = 'g-result:surface'
+    ref_spec = 'item:i-translation'
+    if args['--rephrasing']:
+        join_table = 'r-result'
+        hyp_spec = 'r-result:surface'
+        ref_spec = 'item:i-input'
+    make_hyp = make_ref = lambda s: s
+    if args['--tokenize']:
+        make_hyp = make_ref = lambda s: ' '.join(_tokenize(s))
+
+    select = select_oracle if args['--oracle-bleu'] else select_first
+
+    for i, itemdir in enumerate(args['ITEM']):
+        itemdir = os.path.normpath(itemdir)
+        p = itsdb.ItsdbProfile(itemdir)
+        for hyp, ref in select(p, join_table, hyp_spec, ref_spec):
+            print('{}\t{}'.format(make_hyp(hyp), make_ref(ref)))
+
 
 def select_first(p, join_table, hyp_spec, ref_spec):
     """
@@ -14,7 +38,10 @@ def select_first(p, join_table, hyp_spec, ref_spec):
     realization result per item.
     """
     pairs = []
-    rows = p.join('item', join_table)
+    try:
+        rows = list(p.join('item', join_table))
+    except itsdb.ItsdbError:
+        rows = []
     for i_id, group in groupby(rows, key=lambda row: row['item:i-id']):
         row = next(group)
         pairs.append((row[hyp_spec], row[ref_spec]))
@@ -27,18 +54,24 @@ def select_oracle(p, join_table, hyp_spec, ref_spec):
     realization result per item with the highest GLEU score.
     """
     pairs = []
-    rows = p.join('item', join_table)
+    try:
+        rows = list(p.join('item', join_table))
+    except itsdb.ItsdbError:
+        rows = []
     for i_id, group in groupby(rows, key=lambda row: row['item:i-id']):
         scored = []
         for res in group:
-            ref = res[ref_spec]
-            hyp = res[hyp_spec]
+            pair = [res[ref_spec], res[hyp_spec]]
             scored.append(
-                (bleu([_tokenize(ref)], _tokenize(hyp),
-                      smoothing_function=_smoother), hyp, ref)
+                tuple(
+                    [bleu([_tokenize(pair[1])], _tokenize(pair[0]),
+                          smoothing_function=_smoother)] +
+                    pair
+                )
             )
-        _, hyp, ref = sorted(scored, key=lambda r: r[0])[-1]
-        pairs.append((hyp, ref))
+        best = sorted(scored, key=lambda r: r[0])[-1]
+        pairs.append(best[1:])
+
     return pairs
 
 # class XmtSelector(ItsdbProfile):

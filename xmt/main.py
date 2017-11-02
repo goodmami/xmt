@@ -13,6 +13,7 @@ usage:
   xmt rephrase  [-v...] [ITEM...]
   xmt evaluate  [--coverage] [--bleu] [--oracle-bleu] [--all]
                 [-v...] [ITEM...]
+  xmt select    [--oracle-bleu] [--tokenize] [--rephrasing] [-v...] [ITEM...]
   xmt [--help|--version]
 
 Tasks:
@@ -22,6 +23,7 @@ Tasks:
   generate                  realize strings from target semantics
   rephrase                  realize strings from source semantics
   evaluate                  evaluate results of other tasks
+  select                    print translation/realization pairs
 
 Arguments:
   DIR                       workspace directory
@@ -178,6 +180,8 @@ def main():
         task.do('rephrase', args)
     elif args['evaluate']:
         evaluate.do(args)
+    elif args['select']:
+        select.do(args)
 
 def init(args):
     d = args['DIR']
