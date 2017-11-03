@@ -6,21 +6,27 @@
 
 USAGE = '''
 Usage: extract-subgraphs [--parameters=PATH] [--alignments=PATH]
+                         [--annotate=MODE]
                          [--source-result-id=N] [--target-result-id=N]
                          PROFILE1 [PROFILE2]
 
 Arguments:
-  PROFILE1                  an XMT or [incr tsdb()] profile
-  PROFILE2                  if given, a parallel profile to PROFILE1;
-                            extract matching bilingual subgraphs
+  PROFILE1              an XMT or [incr tsdb()] profile
+  PROFILE2              if given, a parallel profile to PROFILE1;
+                        extract matching bilingual subgraphs
 
 Options:
-  -h, --help                display this help and exit
-  --parameters PATH         JSON file of conversion parameters
-  --source-result-id N      use the Nth source result [default: 0]
-  --target-result-id N      use the Nth target result [default: 0]
-  --alignments PATH         use bilingual alignments at PATH;
-                            assumes PROFILE2
+  -h, --help            display this help and exit
+  --parameters PATH     JSON file of conversion parameters
+  --annotate MODE       predicate annotations; values of MODE are:
+                        hb: Haugereid & Bond (verb@1x, nmz_verb, nmd_"Kim")
+                        xmt: XMT style (pron(3.sg.m), card("1"), etc.)
+                        short: short form of predicates only
+                        none: full pred strings only [default: none]
+  --source-result-id N  use the Nth source result [default: 0]
+  --target-result-id N  use the Nth target result [default: 0]
+  --alignments PATH     use bilingual alignments at PATH;
+                        assumes PROFILE2
 
 '''
 
@@ -34,7 +40,7 @@ from itertools import product, combinations
 import docopt
 
 from delphin.mrs import xmrs, simplemrs, penman, query
-from delphin.mrs.components import var_sort
+from delphin.mrs.components import var_sort, Pred
 from delphin import itsdb
 
 from util import rows, aligned_rows, predlist, read_anymalign_model
@@ -75,6 +81,8 @@ def main():
     tpid = args['--target-result-id']
     spid = args['--source-result-id']
 
+    ann_mode = args['--annotate']
+
     source = itsdb.ItsdbProfile(args['PROFILE1'])
 
     if args['PROFILE2']:
@@ -82,10 +90,11 @@ def main():
         if args['--alignments']:
             alns = load_alignments(
                 args['--alignments'],
-                params.get('alignments', {})
+                params.get('alignments', {}),
+                ann_mode
             )
             data = extract_aligned_subgraphs(
-                source, spid, target, tpid, alns, params
+                source, spid, target, tpid, alns, ann_mode, params
             )
         else:
             data = extract_bilingual_subgraphs(
@@ -104,7 +113,7 @@ def main():
     else:
         commonfeats.append(('res-id', spid))
 
-
+    print('filtering extracted subgraphs', file=sys.stderr)
     for i_id, gs in data:
         for g1, g2, d in filter(graph_filter, gs):
             try:
@@ -123,16 +132,26 @@ def main():
                 pass  # TODO: log warning
 
 
-def extract_aligned_subgraphs(source, spid, target, tpid, alignments, params):
+def extract_aligned_subgraphs(
+        source,
+        spid,
+        target,
+        tpid,
+        alignments,
+        ann_mode,
+        params):
+    print('extracting aligned subgraphs', file=sys.stderr)
     graphparams = params.get('graphs', {})
     dropset = set(graphparams.get('drop_nodes', []))
     for i_id, mrs1, mrs2 in aligned_rows(source, spid, target, tpid):
+        print(' ', i_id, file=sys.stderr)
+
         x1 = simplemrs.loads_one(mrs1)
         x2 = simplemrs.loads_one(mrs2)
         g1 = make_graph(x1, graphparams)
         g2 = make_graph(x2, graphparams)
-        x1_counts = Counter(predlist(x1, dropset))
-        x2_counts = Counter(predlist(x2, dropset))
+        x1_counts = Counter(predlist(x1, dropset, mode='short'))
+        x2_counts = Counter(predlist(x2, dropset, mode='short'))
 
         g1_idkey = dict(
             (x[0], i) for i, x in enumerate(_traverse(g1, g1.top, -1))
@@ -179,6 +198,7 @@ def extract_aligned_subgraphs(source, spid, target, tpid, alignments, params):
 
 
 def extract_bilingual_subgraphs(source, spid, target, tpid, params):
+    print('extracting bilingual subgraphs', file=sys.stderr)
     graphparams = params.get('graphs', {})
     maxdepth = graphparams.get('maximum-depth', _DEFAULT_MAXDEPTH)
     for i_id, mrs1, mrs2 in aligned_rows(source, spid, target, tpid):
@@ -193,6 +213,7 @@ def extract_bilingual_subgraphs(source, spid, target, tpid, params):
 
 
 def extract_monolingual_subgraphs(source, pid, params):
+    print('extracting monolingual subgraphs', file=sys.stderr)
     graphparams = params.get('graphs', {})
     maxdepth = graphparams.get('maximum-depth', _DEFAULT_MAXDEPTH)
     for i_id, p_id, mrs in rows(source):
@@ -204,14 +225,16 @@ def extract_monolingual_subgraphs(source, pid, params):
         yield (i_id, gs)
 
 
-def load_alignments(path, params):
+def load_alignments(path, params, ann_mode):
+    print('loading alignments', file=sys.stderr)
     model = {}
     min_freq = params.get('minimum-frequency', 0)
     min_lexwt = params.get('minimum-lexical-weight')
     min_tprob = params.get('minimum-translation-probability')
     mdl = read_anymalign_model(path)
     for src, tgtdata in mdl.items():
-        src = _clean_annotations(src)
+        src = _clean_annotations(src, ann_mode)
+        src = tuple(sorted(Counter(src).items()))
         for tgt, lexwts, transprobs, freq in tgtdata:
             # simple filtering of the model
             if freq < min_freq:
@@ -222,9 +245,8 @@ def load_alignments(path, params):
             if (min_tprob is not None and
                     (transprobs[0] < min_tprob or transprobs[1] < min_tprob)):
                 continue
-            tgt = _clean_annotations(tgt)
+            tgt = _clean_annotations(tgt, ann_mode)
             # add to the model
-            src = tuple(sorted(Counter(src).items()))
             tgt = tuple(sorted(Counter(tgt).items()))
             if src not in model:
                 model[src] = {}
@@ -233,19 +255,24 @@ def load_alignments(path, params):
     return model
 
 
-def _clean_annotations(preds):
+def _clean_annotations(preds, ann_mode):
     clean = []
     for p in preds:
-        # xmt annotations
-        p = re.sub(r'\(".*"\)$', '', p)
-        # haugereid and bond annotations
-        p = re.sub(r'@(\d+[ehipxu])*$', '', p)
-        if re.match('nmd_', p):
-            clean.append('named')
-        elif re.match('nmz_', p):
-            clean.extend(['nominalization', p])
-        else:
-            clean.append(p)
+        if ann_mode == 'hb':
+            # haugereid and bond annotations
+            # ep arity: not sure what to do with this, so discard
+            p = re.sub(r'@(\d+[ehipxu])*$', '', p)
+            # named rel with CARG
+            p = re.sub(r'^nmd_"(.*)"$', r'named', p)
+            if p.startswith('nmz_'):
+                clean.append('nominalization')
+                p = p[4:]
+            p = Pred.string_or_grammar_pred(p).short_form()
+        elif ann_mode == 'xmt':
+            p = re.sub(r'(.*)\([^)]*\)$', r'\1', p)
+        elif ann_mode != 'short':
+            p = Pred.string_or_grammar_pred(p).short_form()
+        clean.append(p)
     return tuple(clean)
 
 # def pred_sig_to_predlist(sig):

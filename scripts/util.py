@@ -31,7 +31,7 @@ def aligned_rows(p1, pid1, p2, pid2):
             )
 
 
-def predlist(x, dropset=None, get_eps=None, hb=False):
+def predlist(x, dropset=None, get_eps=None, mode=None):
     if dropset is None:
         dropset = set()
 
@@ -39,7 +39,7 @@ def predlist(x, dropset=None, get_eps=None, hb=False):
 
     nmz = set()
     val = {}
-    if hb:
+    if mode == 'hb':
         for ep in eps:
             if ep.pred.short_form() == 'nominalization' and ep.cfrom != -1:
                 nmz.add((ep.cfrom,  ep.cto))
@@ -49,7 +49,7 @@ def predlist(x, dropset=None, get_eps=None, hb=False):
     for ep in eps:
         normpred = ep.pred.short_form()
         pred = ep.pred.string
-        if hb:
+        if mode == 'hb':
             if normpred == 'nominalization' or normpred.endswith('unknown'):
                 continue
             if normpred == 'named':
@@ -60,17 +60,19 @@ def predlist(x, dropset=None, get_eps=None, hb=False):
                 pred += '@' + val[ep.nodeid]
         elif normpred in dropset:
             continue
-        else:
+        elif mode == 'xmt':
             pred = normpred
             if pred == 'pron':
                 props = x.properties(ep.nodeid)
-                pred += '_{}.{}.{}'.format(
+                pred += '({}.{}.{})'.format(
                     props.get('PERS',''),
                     props.get('NUM',''),
                     props.get('GEND','')
                 )
             if ep.carg:
                 pred += '("{}")'.format(ep.carg)
+        elif mode == 'short':
+            pred = normpred
         pl.append(pred)
     return pl
 
