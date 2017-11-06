@@ -143,6 +143,10 @@ def extract_aligned_subgraphs(
     print('extracting aligned subgraphs', file=sys.stderr)
     graphparams = params.get('graphs', {})
     dropset = set(graphparams.get('drop_nodes', []))
+    insset = set(params.get('alignments', {}).get('insert_nodes', []))
+    
+    c_d = c_e = c_f = c_g = c_h = c_i = 0
+
     for i_id, mrs1, mrs2 in aligned_rows(source, spid, target, tpid):
         print(' ', i_id, file=sys.stderr)
 
@@ -167,17 +171,19 @@ def extract_aligned_subgraphs(
         gs = []
         for src_sig, tgts in alignments.items():
             # make sure source mrs is compatible
-            if any(x1_counts[pred] < count for pred, count in src_sig):
+            if any(x1_counts[pred] < count and pred not in insset
+                   for pred, count in src_sig):
                 continue
-            src_sgs = list(build_subgraphs_from_pred_sig(g1, src_sig, g1_idkey, graphparams))
+            src_sgs = list(build_subgraphs_from_pred_sig(g1, src_sig, g1_idkey, insset, graphparams))
             if not src_sgs:
                 continue
 
             for tgt_sig, weights in tgts.items():
                 # make sure target mrs is compatible
-                if any(x2_counts[pred] < count for pred, count in tgt_sig):
+                if any(x2_counts[pred] < count and pred not in insset
+                       for pred, count in tgt_sig):
                     continue
-                tgt_sgs = list(build_subgraphs_from_pred_sig(g2, tgt_sig, g2_idkey, graphparams))
+                tgt_sgs = list(build_subgraphs_from_pred_sig(g2, tgt_sig, g2_idkey, insset, graphparams))
                 if not tgt_sgs:
                     continue
 
@@ -282,17 +288,52 @@ def _clean_annotations(preds, ann_mode):
 #     return predlist
 
 
-def build_subgraphs_from_pred_sig(g, sig, idkey, params):
+def build_subgraphs_from_pred_sig(g, sig, idkey, insset, params):
+    """
+    Given a graph and some parameters, yield matching subgraphs.
+
+    Arguments:
+      g: Graph of MRS
+      sig: list of (predicate, count) tuples used in the subgraph
+      idkey: variable->index mapping (index in dfs order)
+      insset: set of predicates that can be included for free
+      params: dict of graph-construction parameters
+    """
+    # find all predicate nodes in the graph that can be used
     ids = dict((pred, []) for pred, _ in sig)
+    ins_ctx = dict()
     for t in g.attributes(relation='predicate'):
         if t.target in ids:
             ids[t.target].append(t.source)
+        elif t.target in insset:
+            ins_ctx[t.source] = set()
 
+    # find nodes connected to those in the insert set
+    for t in g.edges():
+        if t.source in ins_ctx:
+            ins_ctx[t.source].add(t.target)
+        elif t.target in ins_ctx:
+            ins_ctx[t.target].add(t.source)
+
+    # find all combinations of those nodes matching the counts in sig
     for _ids in _node_combinations(ids, list(sig)):
-        _ids = sorted(_ids, key=idkey.__getitem__)
-        makevar = _make_makevar(g, _ids)
-        ts = frontier(g, _ids)
-        yield relabel_ids(Graph(ts, top=_ids[0]), makevar)
+        agenda = [_ids]  # subgraph versions to yield
+
+        # this block is for adding the "insert_nodes"
+        preds_inserted = False
+        _ids_plus = list(_ids)
+        for j, ctx in ins_ctx.items():
+            if any(i in ctx for i in _ids):
+                _ids_plus.append(j)
+                preds_inserted = True
+        if preds_inserted:
+            agenda.append(_ids_plus)
+
+        for agendum in agenda:
+            xs = sorted(agendum, key=idkey.__getitem__)
+            makevar = _make_makevar(g, xs)
+            ts = frontier(g, xs)
+            yield relabel_ids(Graph(ts, top=xs[0]), makevar)
 
 
 def _node_combinations(d, ps):
