@@ -7,7 +7,7 @@ import pandas as pd
 from util import read_subgraph_file
 
 USAGE = '''
-Usage: select-subgraphs [-c C] [-s P] [-t P] SGFILE
+Usage: select-subgraphs [-c C] [-s P] [-t P] [--sort] SGFILE
 
 The filtering options -c C, -s P, and -t P, if given a numerical argument
 (e.g., -c5 or -s0.75) filter each pair directly based on these values.
@@ -22,9 +22,10 @@ General Options:
   -c C                      filter on the count
   -s P                      filter on the source translation probability
   -t P                      filter on the target translation probability
+  --sort                    sort subgraphs by size
 '''
 
-cols=('count', 'sprob', 'tprob', 'meta', 'src', 'tgt')
+cols=('count', 'sprob', 'tprob', 'nodes', 'meta', 'src', 'tgt')
 
 def main():
     args = docopt.docopt(USAGE)
@@ -55,6 +56,9 @@ def main():
             n = float(args['-t'])
             df = df[df['tprob'] >= n]
 
+    if args['--sort']:
+        df.sort_values('nodes', ascending=False, inplace=True)
+
     for i, s in df[['meta','src','tgt']].iterrows():
         meta, src, tgt = s
         print(meta)
@@ -69,12 +73,13 @@ def _read(f):
         count = int(md.get('count', 1))
         sprob = float(md.get('src-tprob', 1.0))
         tprob = float(md.get('src-tprob', 1.0))
+        nodes = src.count('(')
         m = ' '.join(
             ['#'] + 
             ['::{}'.format(k) if v is None else '::{} {}'.format(k, v)
              for k, v in meta]
         )
-        yield count, sprob, tprob, m, src, tgt
+        yield count, sprob, tprob, nodes, m, src, tgt
 
 
 if __name__ == '__main__':

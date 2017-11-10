@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import sys
 import re
 
 import docopt
@@ -7,6 +8,7 @@ import docopt
 from delphin.mrs.xmrs import Dmrs
 from delphin.mrs.components import Pred, var_sort, var_id
 from delphin.mrs.penman import XMRSCodec
+from penman import DecodeError
 
 from util import read_subgraph_file
 
@@ -32,9 +34,16 @@ def main():
 
 def read_alignments(path):
     for meta, s in read_subgraph_file(open(path)):
-        sgs = list(codec.iterdecode(s))
+        try:
+            sgs = list(codec.iterdecode(s))
+        except DecodeError:
+            sgs = []
         if len(sgs) != 2:
-            raise Exception('Aligned subgraphs must be in pairs.')
+            print(' '.join('{}={}'.format(k, v) for k, v in meta),
+                  file=sys.stderr)
+            print(s, file=sys.stderr)
+            print('Invalid subgraph pair; skipping.\n', file=sys.stderr)
+            continue
         inp, out = sgs
         yield meta, inp, out
 
@@ -99,7 +108,9 @@ def map_shared_variables(x1, x2):
 
 def make_identifier(x1, x2):
     def get_id(ep):
-        return ep.carg if ep.carg is not None else ep.pred.short_form()
+        s = ep.carg if ep.carg is not None else ep.pred.short_form()
+        s = re.sub(r'[()\[\]<>:.]', r'', s)
+        return s
     x1_preds = list(map(get_id, x1.eps()))
     x2_preds = list(map(get_id, x2.eps()))
     return '{}--{}--omtr'.format('+'.join(x1_preds), '+'.join(x2_preds))
