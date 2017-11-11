@@ -10,7 +10,7 @@ from delphin.mrs.components import Pred, var_sort, var_id
 from delphin.mrs.penman import XMRSCodec
 from penman import DecodeError
 
-from util import read_subgraph_file
+from util import read_subgraph_file, penman_structure as pstruct
 
 USAGE = '''
 Usage: make-transer-rules ALIGNMENTS
@@ -22,13 +22,13 @@ Options:
   -h, --help                display this help and exit
 '''
 
-codec = XMRSCodec()
+codec = XMRSCodec(indent=None)
 
 def main():
     args = docopt.docopt(USAGE)
 
     for meta, inp, out in read_alignments(args['ALIGNMENTS']):
-        print(make_transfer_rule(inp, out, meta=meta))
+        print(make_transfer_rule(inp, out, meta))
         print()  # blank line between entries
 
 
@@ -48,10 +48,16 @@ def read_alignments(path):
         yield meta, inp, out
 
 
-def make_transfer_rule(inp, out, meta=None):
+def make_transfer_rule(inp, out, meta):
     x1 = rebuild_xmrs(inp)
     x2 = rebuild_xmrs(out)
-    x1map, x2map = map_shared_variables(x1, x2)
+    # first attempt to map variables in isomorphic graphs
+    x1map, x2map = iso_map_variables(x1, x2, inp, out)
+    # if that fails, do it by nodeid
+    if len(set(x1map.values()).intersection(x2map.values())) == 0:
+        x1map, x2map = nid_map_variables(x1, x2)
+
+    distinguish_remaining_variables(x1, x2, x1map, x2map)
 
     lines = []
     lines.append(
@@ -84,8 +90,21 @@ def rebuild_xmrs(g):
             triples.append((t.source, 'cvarsort', var_sort(t.source)))
     return Dmrs.from_triples(triples, remap_nodeids=False)
 
+def iso_map_variables(x1, x2, g1, g2):
+    x1map, x2map = {}, {}
+    if pstruct(codec.encode(g1)) == pstruct(codec.encode(g2)):
+        for nid1, nid2 in zip(_iso_ids(g1), _iso_ids(g2)):
+            ep1 = x1.ep(nid1)
+            ep2 = x2.ep(nid2)
+            x1map[ep1.iv] = x2map[ep2.iv] = ep1.iv
+            x1map[ep1.label] = x2map[ep2.label] = ep1.label
 
-def map_shared_variables(x1, x2):
+    return x1map, x2map
+
+def _iso_ids(g):
+    return [t.source for t in g.attributes(relation='predicate')]
+
+def nid_map_variables(x1, x2):
     x1nids = x1.nodeids()
     x2nids = x2.nodeids()
     i = max(var_id(v) for v in (x1.variables() + x2.variables())) + 1
@@ -105,6 +124,19 @@ def map_shared_variables(x1, x2):
         x2map[x2ep.label] = v
 
     return x1map, x2map
+
+def distinguish_remaining_variables(x1, x2, x1map, x2map):
+    allvars = set(x1map.values()).union(x2map.values())
+    allvars.add('h0')  # in case it's empty
+    i = max(var_id(v) for v in allvars) + 1
+    for var in x1.variables():
+        if var not in x1map:
+            x1map[var] = var_sort(var) + str(i)
+            i += 1
+    for var in x2.variables():
+        if var not in x2map:
+            x2map[var] = var_sort(var) + str(i)
+            i += 1
 
 def make_identifier(x1, x2):
     def get_id(ep):

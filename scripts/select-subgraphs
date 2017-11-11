@@ -4,10 +4,12 @@ import docopt
 
 import pandas as pd
 
-from util import read_subgraph_file
+from util import read_subgraph_file, penman_structure as pstruct
 
 USAGE = '''
-Usage: select-subgraphs [-c C] [-s P] [-t P] [--sort] SGFILE
+Usage: select-subgraphs [-c C] [-s P] [-t P]
+                        [--isomorphic] [--max-order=N]
+                        [--sort] SGFILE
 
 The filtering options -c C, -s P, and -t P, if given a numerical argument
 (e.g., -c5 or -s0.75) filter each pair directly based on these values.
@@ -22,15 +24,25 @@ General Options:
   -c C                      filter on the count
   -s P                      filter on the source translation probability
   -t P                      filter on the target translation probability
+  --isomorphic              keep when source and target are isomorphic
+  --max-order N             keep when both source and target have order < N
   --sort                    sort subgraphs by size
 '''
 
-cols=('count', 'sprob', 'tprob', 'nodes', 'meta', 'src', 'tgt')
+cols=('count', 'sprob', 'tprob', 'sord', 'tord', 'meta', 'src', 'tgt')
 
 def main():
     args = docopt.docopt(USAGE)
 
     df = pd.DataFrame(_read(open(args['SGFILE'])), columns=cols)
+
+    # these are easier; do them first
+    if args['--isomorphic']:
+        df = df[df['src'].apply(pstruct) == df['tgt'].apply(pstruct)]
+
+    if args['--max-order'] is not None:
+        n = int(args['--max-order'])
+        df = df[(df['sord'] <= n) & (df['tord'] <= n)]
 
     if args['-c']:
         if args['-c'].startswith(':'):
@@ -57,7 +69,7 @@ def main():
             df = df[df['tprob'] >= n]
 
     if args['--sort']:
-        df.sort_values('nodes', ascending=False, inplace=True)
+        df.sort_values('sord', ascending=False, inplace=True)
 
     for i, s in df[['meta','src','tgt']].iterrows():
         meta, src, tgt = s
@@ -73,13 +85,14 @@ def _read(f):
         count = int(md.get('count', 1))
         sprob = float(md.get('src-tprob', 1.0))
         tprob = float(md.get('src-tprob', 1.0))
-        nodes = src.count('(')
+        sord = src.count('(')
+        tord = tgt.count('(')
         m = ' '.join(
             ['#'] + 
             ['::{}'.format(k) if v is None else '::{} {}'.format(k, v)
              for k, v in meta]
         )
-        yield count, sprob, tprob, nodes, m, src, tgt
+        yield count, sprob, tprob, sord, tord, m, src, tgt
 
 
 if __name__ == '__main__':
