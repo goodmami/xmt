@@ -51,7 +51,7 @@ def select_first(p, join_table, hyp_spec, ref_spec):
 def select_oracle(p, join_table, hyp_spec, ref_spec):
     """
     Return (hypothesis, reference) translation pairs using the
-    realization result per item with the highest GLEU score.
+    realization result per item with the highest BLEU score.
     """
     pairs = []
     try:
@@ -73,9 +73,3 @@ def select_oracle(p, join_table, hyp_spec, ref_spec):
         pairs.append(best[1:])
 
     return pairs
-
-# class XmtSelector(ItsdbProfile):
-#     def items(self):
-#         return self.read_table('item')
-#     def parses(self):
-#         return self

@@ -98,6 +98,17 @@ def iso_map_variables(x1, x2, g1, g2):
             ep2 = x2.ep(nid2)
             x1map[ep1.iv] = x2map[ep2.iv] = ep1.iv
             x1map[ep1.label] = x2map[ep2.label] = ep1.label
+        # also need to map hole variables
+        # 1: HCONS: < h4 qeq h1 >
+        # 2: HCONS: < h2 qeq h3 >
+        # if x2map['h3'] = 'h1', then x2map['h2'] = (h3 -> h1 -> h4)
+        inv2 = dict((v, k) for k, v in x2map.items())
+        hc1 = dict((hc.lo, hc.hi) for hc in x1.hcons())
+        for hc in x2.hcons():
+            lbl1 = inv2.get(hc.lo, None)
+            if lbl1 in hc1:
+                hi1 = hc1[lbl1]
+                x1map[hi1] = x2map[hc.hi] = hi1
 
     return x1map, x2map
 
