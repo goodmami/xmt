@@ -7,8 +7,8 @@ import pandas as pd
 from util import read_subgraph_file, penman_structure as pstruct
 
 USAGE = '''
-Usage: select-subgraphs [-c C] [-s P] [-t P]
-                        [--isomorphic] [--max-order=N]
+Usage: select-subgraphs [-c C] [-s P] [-t P] [--isomorphic] [--max-order=N]
+                        [--no-unknown-sources] [--no-unknown-targets]
                         [--sort] SGFILE
 
 The filtering options -c C, -s P, and -t P, if given a numerical argument
@@ -26,6 +26,8 @@ General Options:
   -t P                      filter on the target translation probability
   --isomorphic              keep when source and target are isomorphic
   --max-order N             keep when both source and target have order < N
+  --no-unknown-sources      remove when the source has an unknown predicate
+  --no-unknown-targets      remove when the target has an unknown predicate
   --sort                    sort subgraphs by size
 '''
 
@@ -37,12 +39,18 @@ def main():
     df = pd.DataFrame(_read(open(args['SGFILE'])), columns=cols)
 
     # these are easier; do them first
-    if args['--isomorphic']:
-        df = df[df['src'].apply(pstruct) == df['tgt'].apply(pstruct)]
-
     if args['--max-order'] is not None:
         n = int(args['--max-order'])
         df = df[(df['sord'] <= n) & (df['tord'] <= n)]
+
+    if args['--no-unknown-sources']:
+        df = df[~df['src'].str.contains(r'_unk(?:[ )]|nown)')]
+
+    if args['--no-unknown-targets']:
+        df = df[~df['tgt'].str.contains(r'_unk(?:[ )]|nown)')]
+
+    if args['--isomorphic']:
+        df = df[df['src'].apply(pstruct) == df['tgt'].apply(pstruct)]
 
     if args['-c']:
         if args['-c'].startswith(':'):
