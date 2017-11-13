@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+
+from collections import Counter
+
+import docopt
+
+from delphin import itsdb
+from delphin.mrs import simplemrs
+
+from util import rows, predlist
+
+USAGE = '''
+Usage: extract-vocabulary [--annotate=MODE] PROFILE...
+
+Read a profile and print the predicates used.
+
+Arguments:
+  PROFILE               one or more profile directories
+
+General Options:
+  -h, --help            display this help and exit
+  --annotate MODE       predicate annotations; values of MODE are:
+                        hb: Haugereid & Bond (verb@1x, nmz_verb, nmd_"Kim")
+                        xmt: XMT style (pron(3.sg.m), card("1"), etc.)
+                        short: short form of predicates only
+                        none: full pred strings only [default: short]
+'''
+
+def main():
+    args = docopt.docopt(USAGE)
+
+    vocab = Counter()
+
+    for prof in args['PROFILE']:
+        p = itsdb.ItsdbProfile(prof)
+        for i_id, p_id, mrs in rows(p):
+            x = simplemrs.loads_one(mrs)
+            vocab.update(predlist(x, mode=args['--annotate']))
+
+    for v in sorted(vocab):
+        print(v)
+
+if __name__ == '__main__':
+    main()

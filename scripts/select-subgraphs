@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import re
+
 import docopt
 
 import pandas as pd
@@ -9,7 +11,7 @@ from util import read_subgraph_file, penman_structure as pstruct
 USAGE = '''
 Usage: select-subgraphs [-c C] [-s P] [-t P] [--isomorphic] [--order=N]
                         [--no-unknown-sources] [--no-unknown-targets]
-                        [--sort] SGFILE
+                        [--predicates=FILE] [--sort] SGFILE
 
 The filtering options -c C, -s P, and -t P, if given a numerical argument
 (e.g., -c5 or -s0.75) filter each pair directly based on these values.
@@ -29,6 +31,7 @@ General Options:
   --order N                 keep when both source and target have order < N
   --no-unknown-sources      remove when the source has an unknown predicate
   --no-unknown-targets      remove when the target has an unknown predicate
+  --predicates FILE         remove when source predicates don't exist in FILE
   --sort                    sort subgraphs by size
 '''
 
@@ -50,6 +53,11 @@ def main():
         else:
             n = int(args['--order'])
             df = df[(df['sord'] == n) & (df['tord'] == n)]
+
+    if args['--predicates']:
+        predset = set(line.strip() for line in open(args['--predicates']))
+        f = lambda s: all(t in predset for t in re.findall(r'/ ([^ )]+)', s))
+        df = df[df['src'].apply(f)]
 
     if args['--no-unknown-sources']:
         df = df[~df['src'].str.contains(r'_unk(?:[ )]|nown)')]
