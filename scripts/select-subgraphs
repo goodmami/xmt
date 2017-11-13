@@ -56,8 +56,7 @@ def main():
 
     if args['--predicates']:
         predset = set(line.strip() for line in open(args['--predicates']))
-        f = lambda s: all(t in predset for t in re.findall(r'/ ([^ )]+)', s))
-        df = df[df['src'].apply(f)]
+        df = df[df['src'].apply(make_predcheck(predset))]
 
     if args['--no-unknown-sources']:
         df = df[~df['src'].str.contains(r'_unk(?:[ )]|nown)')]
@@ -118,6 +117,18 @@ def _read(f):
         )
         yield count, sprob, tprob, sord, tord, m, src, tgt
 
+
+def make_predcheck(predset):
+    def _predcheck(s):
+        for m in re.finditer(r'/ (?P<p>[^ )]+)(?: :carg (?P<c>"[^"]+"))', s):
+            if m.group('c'):
+                if '{}({})'.format(m.group('p'), m.group('c')) not in predset:
+                    return False
+            else:
+                if m.group('p') not in predset:
+                    return False
+        return True
+    return _predcheck
 
 if __name__ == '__main__':
     main()
