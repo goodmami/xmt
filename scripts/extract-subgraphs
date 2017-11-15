@@ -145,8 +145,6 @@ def extract_aligned_subgraphs(
     dropset = set(graphparams.get('drop_nodes', []))
     insset = set(params.get('alignments', {}).get('insert_nodes', []))
     
-    c_d = c_e = c_f = c_g = c_h = c_i = 0
-
     for i_id, mrs1, mrs2 in aligned_rows(source, spid, target, tpid):
         print(' ', i_id, file=sys.stderr)
 
@@ -154,8 +152,8 @@ def extract_aligned_subgraphs(
         x2 = simplemrs.loads_one(mrs2)
         g1 = make_graph(x1, graphparams)
         g2 = make_graph(x2, graphparams)
-        x1_counts = Counter(predlist(x1, dropset, mode='short'))
-        x2_counts = Counter(predlist(x2, dropset, mode='short'))
+        x1_counts = Counter(predlist(x1, dropset, mode=ann_mode))
+        x2_counts = Counter(predlist(x2, dropset, mode=ann_mode))
 
         g1_idkey = dict(
             (x[0], i) for i, x in enumerate(_traverse(g1, g1.top, -1))
@@ -163,6 +161,9 @@ def extract_aligned_subgraphs(
         g2_idkey = dict(
             (x[0], i) for i, x in enumerate(_traverse(g2, g2.top, -1))
         )
+        
+        # maybe this check is unnecessary; it matters if the extracted
+        # subgraphs are connected
         if len(g1.variables()) > len(g1_idkey):
             continue  # g1 is probably disconnected
         if len(g2.variables()) > len(g2_idkey):
@@ -171,7 +172,7 @@ def extract_aligned_subgraphs(
         gs = []
         for src_sig, tgts in alignments.items():
             # make sure source mrs is compatible
-            if any(x1_counts[pred] < count and pred not in insset
+            if any(x1_counts[pred[0]] < count and pred[1] not in insset
                    for pred, count in src_sig):
                 continue
             src_sgs = list(build_subgraphs_from_pred_sig(g1, src_sig, g1_idkey, insset, graphparams))
@@ -180,7 +181,7 @@ def extract_aligned_subgraphs(
 
             for tgt_sig, weights in tgts.items():
                 # make sure target mrs is compatible
-                if any(x2_counts[pred] < count and pred not in insset
+                if any(x2_counts[pred[0]] < count and pred[1] not in insset
                        for pred, count in tgt_sig):
                     continue
                 tgt_sgs = list(build_subgraphs_from_pred_sig(g2, tgt_sig, g2_idkey, insset, graphparams))
@@ -239,7 +240,8 @@ def load_alignments(path, params, ann_mode):
     min_tprob = params.get('minimum-translation-probability')
     mdl = read_anymalign_model(path)
     for src, tgtdata in mdl.items():
-        src = _clean_annotations(src, ann_mode)
+
+        src = _deconstruct_annotations(src, ann_mode)
         src = tuple(sorted(Counter(src).items()))
         for tgt, lexwts, transprobs, freq in tgtdata:
             # simple filtering of the model
@@ -251,7 +253,7 @@ def load_alignments(path, params, ann_mode):
             if (min_tprob is not None and
                     (transprobs[0] < min_tprob or transprobs[1] < min_tprob)):
                 continue
-            tgt = _clean_annotations(tgt, ann_mode)
+            tgt = _deconstruct_annotations(tgt, ann_mode)
             # add to the model
             tgt = tuple(sorted(Counter(tgt).items()))
             if src not in model:
@@ -261,25 +263,54 @@ def load_alignments(path, params, ann_mode):
     return model
 
 
-def _clean_annotations(preds, ann_mode):
+def _deconstruct_annotations(preds, ann_mode):
     clean = []
     for p in preds:
+        d = []
         if ann_mode == 'hb':
             # haugereid and bond annotations
             # ep arity: not sure what to do with this, so discard
-            p = re.sub(r'@(\d+[ehipxu])*$', '', p)
+            n = re.sub(r'@(\d+[ehipxu])*$', '', p)
             # named rel with CARG
-            p = re.sub(r'^nmd_"(.*)"$', r'named', p)
-            if p.startswith('nmz_'):
-                clean.append('nominalization')
-                p = p[4:]
-            p = Pred.string_or_grammar_pred(p).short_form()
+            m = re.match(r'nmd_"(.*)"$', n)
+            if m is not None:
+                n = 'named_rel'
+                d = ['carg', m.group(1)]
+            elif n.startswith('nmz_'):
+                n = n[4:]
+            n = Pred.string_or_grammar_pred(n).short_form()
         elif ann_mode == 'xmt':
-            p = re.sub(r'(.*)\([^)]*\)$', r'\1', p)
+            m = re.match(r'(.*)\((".*")\)$', p)
+            if m is not None:
+                n = m.group(1)
+                d = ['carg', m.group(2)]
+            else:
+                # for now
+                n = re.sub(r'(.*)\([^)]*\)$', r'\1', p)
         elif ann_mode != 'short':
-            p = Pred.string_or_grammar_pred(p).short_form()
-        clean.append(p)
+            n = Pred.string_or_grammar_pred(p).short_form()
+        clean.append(tuple([p, n] + d))
     return tuple(clean)
+
+# def _clean_annotations(preds, ann_mode):
+#     clean = []
+#     for p in preds:
+#         if ann_mode == 'hb':
+#             # haugereid and bond annotations
+#             # ep arity: not sure what to do with this, so discard
+#             p = re.sub(r'@(\d+[ehipxu])*$', '', p)
+#             # named rel with CARG
+#             p = re.sub(r'^nmd_"(.*)"$', r'named', p)
+#             if p.startswith('nmz_'):
+#                 clean.append('nominalization')
+#                 p = p[4:]
+#             p = Pred.string_or_grammar_pred(p).short_form()
+#         elif ann_mode == 'xmt':
+#             p = re.sub(r'(.*)\([^)]*\)$', r'\1', p)
+#         elif ann_mode != 'short':
+#             p = Pred.string_or_grammar_pred(p).short_form()
+#         clean.append(p)
+#     return tuple(clean)
 
 # def pred_sig_to_predlist(sig):
 #     predlist = []
@@ -300,12 +331,12 @@ def build_subgraphs_from_pred_sig(g, sig, idkey, insset, params):
       params: dict of graph-construction parameters
     """
     # find all predicate nodes in the graph that can be used
-    ids = dict((pred, []) for pred, _ in sig)
+
+    revmap = dict()
     ins_ctx = dict()
     for t in g.attributes(relation='predicate'):
-        if t.target in ids:
-            ids[t.target].append(t.source)
-        elif t.target in insset:
+        revmap.setdefault(t.target, []).append(t.source)
+        if t.target in insset:
             ins_ctx[t.source] = set()
 
     # find nodes connected to those in the insert set
@@ -315,8 +346,19 @@ def build_subgraphs_from_pred_sig(g, sig, idkey, insset, params):
         elif t.target in ins_ctx:
             ins_ctx[t.target].add(t.source)
 
+    ids = dict()
+    normsig = list()
+    for predinfo, count in sig:
+        norminfo = tuple(predinfo[1:])
+        normsig.append((norminfo, count))
+        for src in revmap.get(norminfo[0], []):
+            if all(len(g.triples(source=src, relation=rel, target=tgt)) > 0
+                   for rel, tgt in zip(norminfo[1::2], norminfo[2::2])):
+                ids.setdefault(norminfo, []).append(src)
+
+
     # find all combinations of those nodes matching the counts in sig
-    for _ids in _node_combinations(ids, list(sig)):
+    for _ids in _node_combinations(ids, list(normsig)):
         agenda = [_ids]  # subgraph versions to yield
 
         # this block is for adding the "insert_nodes"
@@ -339,11 +381,11 @@ def build_subgraphs_from_pred_sig(g, sig, idkey, insset, params):
 def _node_combinations(d, ps):
     if not ps:
         return [[]]
-    pred, count = ps.pop()
+    predinfo, count = ps.pop()
     ids = [
         _ids + list(__ids)
         for _ids in _node_combinations(d, ps)
-        for __ids in combinations(d[pred], count)
+        for __ids in combinations(d[predinfo], count)
     ]
     return ids
 
