@@ -123,9 +123,9 @@ def _read(f):
 
 def make_predcheck(predset):
     def _predcheck(s):
-        for m in re.finditer(r'/ (?P<p>[^ )]+)(?: :carg (?P<c>"[^"]+"))', s):
+        for m in re.finditer(r'/ (?P<p>[^ )]+)(?: :carg (?P<c>"[^"]+"))?',s):
             if m.group('c'):
-                if '{}({})'.format(m.group('p'), m.group('c')) not in predset:
+                if '{}({})'.format(m.group('p'),m.group('c')) not in predset:
                     return False
             else:
                 if m.group('p') not in predset:
