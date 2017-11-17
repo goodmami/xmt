@@ -9,7 +9,7 @@ import pandas as pd
 from util import read_subgraph_file, penman_structure as pstruct
 
 USAGE = '''
-Usage: select-subgraphs [-c C] [-s P] [-t P] [--isomorphic] [--order=N]
+Usage: select-subgraphs [-c C] [-s P] [-t P] [--isomorphic] [--order=MxN]
                         [--no-unknown-sources] [--no-unknown-targets]
                         [--predicates=FILE] [--sort] SGFILE
 
@@ -17,7 +17,8 @@ The filtering options -c C, -s P, and -t P, if given a numerical argument
 (e.g., -c5 or -s0.75) filter each pair directly based on these values.
 If the number is an integer prefixed by a colon (e.g., -c:5, -s:3), then
 the top N within the group sharing the same source subgraph will be kept.
-With --order, N, :N, and N: mean exactly-N, N-or-lower, and N-or-greater
+With --order, the argument specifies SOURCExTARGET order, which can be
+ranges, e.g., --order=1x1 or --order=2-3x3.
 
 Arguments:
   SGFILE                    file containing aligned MRS subgraphs
@@ -28,7 +29,7 @@ General Options:
   -s P                      filter on the source translation probability
   -t P                      filter on the target translation probability
   --isomorphic              keep when source and target are isomorphic
-  --order N                 keep when both source and target have order < N
+  --order MxN               keep when both source/target have order M/N
   --no-unknown-sources      remove when the source has an unknown predicate
   --no-unknown-targets      remove when the target has an unknown predicate
   --predicates FILE         remove when source predicates don't exist in FILE
@@ -44,15 +45,17 @@ def main():
 
     # these are easier; do them first
     if args['--order'] is not None:
-        if args['--order'].startswith(':'):
-            n = int(args['--order'][1:])
-            df = df[(df['sord'] <= n) & (df['tord'] <= n)]
-        elif args['--order'].endswith(':'):
-            n = int(args['--order'][:-1])
-            df = df[(df['sord'] >= n) & (df['tord'] >= n)]
+        src_o, tgt_o = args['--order'].lower().split('x')
+        if '-' in src_o:
+            a, b = map(int, src_o.split('-'))
+            df = df[(a <= df['sord']) & (df['sord'] <= b)]
         else:
-            n = int(args['--order'])
-            df = df[(df['sord'] == n) & (df['tord'] == n)]
+            df = df[df['sord'] == int(src_o)]
+        if '-' in tgt_o:
+            a, b = map(int, tgt_o.split('-'))
+            df = df[(a <= df['tord']) & (df['tord'] <= b)]
+        else:
+            df = df[df['tord'] == int(tgt_o)]
 
     if args['--predicates']:
         predset = set(line.strip() for line in open(args['--predicates']))
