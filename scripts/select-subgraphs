@@ -110,7 +110,7 @@ def _read(f):
         src, tgt = s.splitlines()
         count = int(md.get('count', 1))
         sprob = float(md.get('src-tprob', 1.0))
-        tprob = float(md.get('src-tprob', 1.0))
+        tprob = float(md.get('tgt-tprob', 1.0))
         sord = src.count('(')
         tord = tgt.count('(')
         m = ' '.join(
