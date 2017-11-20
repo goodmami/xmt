@@ -33,7 +33,7 @@ General Options:
   --no-unknown-sources      remove when the source has an unknown predicate
   --no-unknown-targets      remove when the target has an unknown predicate
   --predicates FILE         remove when source predicates don't exist in FILE
-  --sort                    sort subgraphs by size
+  --sort                    sort subgraphs by size, then by trans-probability
 '''
 
 cols=('count', 'sprob', 'tprob', 'sord', 'tord', 'meta', 'src', 'tgt')
@@ -95,7 +95,11 @@ def main():
             df = df[df['tprob'] >= n]
 
     if args['--sort']:
-        df.sort_values('sord', ascending=False, inplace=True)
+        df.sort_values(
+            ['sord', 'sprob', 'tprob'],
+            ascending=False,
+            inplace=True
+        )
 
     for i, s in df[['meta','src','tgt']].iterrows():
         meta, src, tgt = s
