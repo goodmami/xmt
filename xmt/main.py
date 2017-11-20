@@ -11,7 +11,7 @@ usage:
   xmt transfer  [-v...] [ITEM...]
   xmt generate  [-v...] [ITEM...]
   xmt rephrase  [-v...] [ITEM...]
-  xmt evaluate  [--coverage] [--bleu] [--oracle-bleu] [--all]
+  xmt evaluate  [--coverage] [--bleu] [--oracle-bleu] [--all] [--ignore=S]
                 [-v...] [ITEM...]
   xmt select    [--oracle-bleu] [--tokenize] [--rephrasing] [-v...] [ITEM...]
   xmt [--help|--version]
@@ -40,6 +40,13 @@ Options:
   --full                    import full profiles, not just item info
   --reverse                 switch input and translation sentences
   --ace-bin PATH            path to ace binary [default=ace]
+
+Evaluation Options:
+  --coverage
+  --bleu
+  --oracle-bleu
+  --all
+  --ignore S
 
 """
 

@@ -35,7 +35,7 @@ def do(args):
         p = itsdb.ItsdbProfile(itemdir)
         p_stats = {}
         if args['--coverage']:
-            update_stats(p_stats, coverage(p))
+            update_stats(p_stats, coverage(p, args['--ignore']))
 
         if args['--bleu'] and p.size('g-result') > 0:
             update_stats(p_stats, bleu(p, 'realizations'))
@@ -58,17 +58,19 @@ def do(args):
         print(format_eval('Summary', stats, args))
 
 
-def coverage(p):
+def coverage(p, ignore=None):
     logging.debug('Calculating coverage for {}'.format(p.root))
     p_results = rows(p, 'p-result')
     x_results = rows(p, 'x-result')
     g_results = rows(p, 'g-result')
     r_results = rows(p, 'r-result')
-    cov = {'items':             len(list(p.read_table('item')))}
+    cov = {'items': len(list(p.read_table('item')))}
     if p_results:
         cov['items-parsed'] = len(set(r['i-id'] for r in p_results))
         cov['parses'] = len(p_results)
     if x_results:
+        if ignore is not None:
+            x_results = [r for r in x_results if ignore not in r['mrs']]
         cov['items-transferred'] = len(set(r['i-id'] for r in x_results))
         cov['parses-transferred'] = len(set((r['i-id'], r['p-id'])
                                         for r in x_results))
@@ -180,7 +182,8 @@ def format_eval(name, stats, args):
                 ta=stats['items-transferred']/float(stats['items']),
                 tb=stats['items-transferred']/float(stats['items-parsed']),
                 tc=stats['parses-transferred']/float(stats['parses']),
-                td=stats['transfers']/float(stats['parses-transferred'])
+                td=stats['transfers']/(float(stats['parses-transferred'])
+                                       or 1.0)  # avoid division by 0
             )
         if 'realizations' in stats:
             s += (
