@@ -9,7 +9,8 @@ import pandas as pd
 from util import read_subgraph_file, penman_structure as pstruct
 
 USAGE = '''
-Usage: select-subgraphs [-c C] [-s P] [-t P] [--isomorphic] [--order=MxN]
+Usage: select-subgraphs [-c C] [-s P] [-t P] [-f F]
+                        [--isomorphic] [--order=MxN]
                         [--no-unknown-sources] [--no-unknown-targets]
                         [--predicates=FILE] [--sort] SGFILE
 
@@ -28,6 +29,7 @@ General Options:
   -c C                      filter on the count
   -s P                      filter on the source translation probability
   -t P                      filter on the target translation probability
+  -f F                      filter on the anymalign frequency
   --isomorphic              keep when source and target are isomorphic
   --order MxN               keep when both source/target have order M/N
   --no-unknown-sources      remove when the source has an unknown predicate
@@ -36,7 +38,7 @@ General Options:
   --sort                    sort subgraphs by size, then by trans-probability
 '''
 
-cols=('count', 'sprob', 'tprob', 'sord', 'tord', 'meta', 'src', 'tgt')
+cols=('count','sprob','tprob','freq','sord','tord','meta','src','tgt')
 
 def main():
     args = docopt.docopt(USAGE)
@@ -94,9 +96,17 @@ def main():
             n = float(args['-t'])
             df = df[df['tprob'] >= n]
 
+    if args['-f']:
+        if args['-f'].startswith(':'):
+            n = int(args['-f'][1:])
+            df = df.sort_values('freq').groupby('src').tail(n)
+        else:
+            n = int(args['-f'])
+            df = df[df['freq'] >= n]
+
     if args['--sort']:
         df.sort_values(
-            ['sord', 'sprob', 'tprob'],
+            ['sord', 'sprob', 'tprob', 'freq'],
             ascending=False,
             inplace=True
         )
@@ -115,6 +125,7 @@ def _read(f):
         count = int(md.get('count', 1))
         sprob = float(md.get('src-tprob', 1.0))
         tprob = float(md.get('tgt-tprob', 1.0))
+        freq = int(md.get('freq', 1))
         sord = src.count('(')
         tord = tgt.count('(')
         m = ' '.join(
@@ -122,7 +133,7 @@ def _read(f):
             ['::{}'.format(k) if v is None else '::{} {}'.format(k, v)
              for k, v in meta]
         )
-        yield count, sprob, tprob, sord, tord, m, src, tgt
+        yield count, sprob, tprob, freq, sord, tord, m, src, tgt
 
 
 def make_predcheck(predset):
