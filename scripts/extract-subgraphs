@@ -169,13 +169,14 @@ def extract_aligned_subgraphs(
         if len(g2.variables()) > len(g2_idkey):
             continue  # g2 is probably disconnected
 
+        seen = set()  # only output same source subgraph once per MRS
         gs = []
         for src_sig, tgts in alignments.items():
             # make sure source mrs is compatible
             if any(x1_counts[pred[0]] < count and pred[1] not in insset
                    for pred, count in src_sig):
                 continue
-            src_sgs = list(build_subgraphs_from_pred_sig(g1, src_sig, g1_idkey, insset, graphparams))
+            src_sgs = list(build_subgraphs_from_pred_sig(g1, src_sig, g1_idkey, insset, seen, graphparams))
             if not src_sgs:
                 continue
 
@@ -184,7 +185,7 @@ def extract_aligned_subgraphs(
                 if any(x2_counts[pred[0]] < count and pred[1] not in insset
                        for pred, count in tgt_sig):
                     continue
-                tgt_sgs = list(build_subgraphs_from_pred_sig(g2, tgt_sig, g2_idkey, insset, graphparams))
+                tgt_sgs = list(build_subgraphs_from_pred_sig(g2, tgt_sig, g2_idkey, insset, None, graphparams))
                 if not tgt_sgs:
                     continue
 
@@ -319,7 +320,7 @@ def _deconstruct_annotations(preds, ann_mode):
 #     return predlist
 
 
-def build_subgraphs_from_pred_sig(g, sig, idkey, insset, params):
+def build_subgraphs_from_pred_sig(g, sig, idkey, insset, seen, params):
     """
     Given a graph and some parameters, yield matching subgraphs.
 
@@ -343,8 +344,8 @@ def build_subgraphs_from_pred_sig(g, sig, idkey, insset, params):
     for t in g.edges():
         if t.source in ins_ctx:
             ins_ctx[t.source].add(t.target)
-        elif t.target in ins_ctx:
-            ins_ctx[t.target].add(t.source)
+        # elif t.target in ins_ctx:
+        #     ins_ctx[t.target].add(t.source)
 
     ids = dict()
     normsig = list()
@@ -365,16 +366,24 @@ def build_subgraphs_from_pred_sig(g, sig, idkey, insset, params):
         preds_inserted = False
         _ids_plus = list(_ids)
         for j, ctx in ins_ctx.items():
-            if any(i in ctx for i in _ids):
+            # only if all args of inserted node are satisfied
+            if all(i in _ids for i in ctx):
                 _ids_plus.append(j)
                 preds_inserted = True
         if preds_inserted:
-            agenda.append(_ids_plus)
+            agenda = [_ids_plus]
+            # agenda.append(_ids_plus)
 
         for agendum in agenda:
             xs = sorted(agendum, key=idkey.__getitem__)
             makevar = _make_makevar(g, xs)
             ts = frontier(g, xs)
+            if seen is not None:
+                # flexible duplicate detection
+                sgids = tuple(sorted(set(t[0] for t in ts)))
+                if sgids in seen:
+                    continue
+                seen.add(sgids)
             yield relabel_ids(Graph(ts, top=xs[0]), makevar)
 
 
@@ -430,7 +439,14 @@ def enumerate_subgraphs(g, maxdepth):
         for depth in range(sgdepth + 1):
             _ids = [i for i, d in ids if d <= depth]
             triples = frontier(g, _ids)
-            yield relabel_ids(Graph(triples, top=_ids[0]), makevar)
+            # it's possible for the same subgraphs to be encountered more
+            # than once because nodes can be reached at different depths,
+            # so check if the set of node ids has been seen already. This
+            # will thus select the one with the shallowest depth
+            sgids = tuple(sorted(set(t[0] for t in triples)))
+            if sgids not in seen:
+                seen.add(sgids)
+                yield relabel_ids(Graph(triples, top=_ids[0]), makevar)
 
 
 def _traverse(g, top, maxdepth, remaining=None, depth=0):
