@@ -13,13 +13,15 @@ from penman import DecodeError
 from util import read_subgraph_file, penman_structure as pstruct
 
 USAGE = '''
-Usage: make-transer-rules ALIGNMENTS
+Usage: make-transer-rules [--coindex-top] [--mtr-type=WHEN] ALIGNMENTS
 
 Arguments:
   ALIGNMENTS                file containing aligned MRS subgraphs
 
 Options:
   -h, --help                display this help and exit
+  --coindex-top             force unification of top src/tgt predicates
+  --mtr-type WHEN           use -mtr type (always|last|never) [default: last]
 '''
 
 codec = XMRSCodec(indent=None)
@@ -27,8 +29,28 @@ codec = XMRSCodec(indent=None)
 def main():
     args = docopt.docopt(USAGE)
 
-    for meta, inp, out in read_alignments(args['ALIGNMENTS']):
-        print(make_transfer_rule(inp, out, meta))
+    final = {}
+    mtrs = []
+    for i, data in enumerate(read_alignments(args['ALIGNMENTS'])):
+        meta, inp, out = data
+        comment, signature, source, target = make_transfer_rule(
+            inp,
+            out,
+            meta,
+            args['--coindex-top']
+        )
+        final[source] = i  # reassignment; only keep last position
+        mtrs.append((comment, signature, source, target))
+
+    for i, mtr in enumerate(mtrs):
+        comment, signature, source, target = mtr
+        if (args['--mtr-type'] == 'always' or
+                (args['--mtr-type'] == 'last' and i == final[source])):
+            signature = (
+                signature.replace('--omtr :=', '--mtr :=')
+                         .replace(':= monotonic_omtr', ':= monotonic_mtr')
+            )
+        print('\n'.join([comment, signature, source, target]))
         print()  # blank line between entries
 
 
@@ -48,7 +70,7 @@ def read_alignments(path):
         yield meta, inp, out
 
 
-def make_transfer_rule(inp, out, meta):
+def make_transfer_rule(inp, out, meta, coindex):
     x1 = rebuild_xmrs(inp)
     x2 = rebuild_xmrs(out)
     # first attempt to map variables in isomorphic graphs
@@ -59,26 +81,25 @@ def make_transfer_rule(inp, out, meta):
 
     distinguish_remaining_variables(x1, x2, x1map, x2map)
 
-    lines = []
-    lines.append(
-        '; ' + ' '.join('{}={}'.format(k, v) for k, v in (meta or []))
-    )
-    lines.append(make_identifier(x1, x2) + ' := monotonic_omtr &')
-    
+    top_tag = '#top ' if coindex else ''
+
+    comment ='; ' + ' '.join('{}={}'.format(k, v) for k, v in (meta or []))
+
+    signature = make_identifier(x1, x2) + ' := monotonic_omtr &'
+
     rels, hcons = make_definition(x1, x1map, prefix='ja:')
-    lines.append('[ INPUT.RELS < {} >,'.format(rels))
+    source = '[ INPUT.RELS < {}{} >,'.format(top_tag, rels)
     if hcons:
-        lines.append('  INPUT.HCONS < {} >,'.format(hcons))
+        source += '\n  INPUT.HCONS < {} >,'.format(hcons)
 
     rels, hcons = make_definition(x2, x2map)
-    lines.append('  OUTPUT.RELS < {} >'.format(rels))#.replace('[ PRED', '+copy+ & [ PRED')))
+    target = '  OUTPUT.RELS < {}{} >'.format(top_tag, rels)
     if hcons:
-        lines[-1] += ','
-        lines.append('  OUTPUT.HCONS < {} > ].'.format(hcons))
+        target += ',\n  OUTPUT.HCONS < {} > ].'.format(hcons)
     else:
-        lines[-1] += ' ].'
+        target += ' ].'
 
-    return '\n'.join(lines)
+    return comment, signature, source, target
 
 
 def rebuild_xmrs(g):
@@ -156,7 +177,10 @@ def make_identifier(x1, x2):
         return s
     x1_preds = list(map(get_id, x1.eps()))
     x2_preds = list(map(get_id, x2.eps()))
-    return '{}--{}--omtr'.format('+'.join(x1_preds), '+'.join(x2_preds))
+    return '{}--{}--omtr'.format(
+        '+'.join(x1_preds),
+        '+'.join(x2_preds)
+    )
 
 def make_definition(x, vmap, prefix=''):
     # make indices to filter unlinked entities
