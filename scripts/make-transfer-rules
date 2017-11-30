@@ -81,21 +81,22 @@ def make_transfer_rule(inp, out, meta, coindex):
 
     distinguish_remaining_variables(x1, x2, x1map, x2map)
 
-    top_tag = '#top ' if coindex else ''
-
     comment ='; ' + ' '.join('{}={}'.format(k, v) for k, v in (meta or []))
 
     signature = make_identifier(x1, x2) + ' := monotonic_omtr &'
 
-    rels, hcons = make_definition(x1, x1map, prefix='ja:')
-    source = '[ INPUT.RELS < {}{} >,'.format(top_tag, rels)
-    if hcons:
-        source += '\n  INPUT.HCONS < {} >,'.format(hcons)
+    srels, shcons = make_definition(x1, x1map, prefix='ja:')
+    trels, thcons = make_definition(x2, x2map)
 
-    rels, hcons = make_definition(x2, x2map)
-    target = '  OUTPUT.RELS < {}{} >'.format(top_tag, rels)
-    if hcons:
-        target += ',\n  OUTPUT.HCONS < {} > ].'.format(hcons)
+    srels, trels = format_rels(srels, trels, coindex)
+
+    source = '[ INPUT.RELS < {} >,'.format(srels)
+    if shcons:
+        source += '\n  INPUT.HCONS < {} >,'.format(', '.join(shcons))
+
+    target = '  OUTPUT.RELS < {} >'.format(trels)
+    if thcons:
+        target += ',\n  OUTPUT.HCONS < {} > ].'.format(', '.join(thcons))
     else:
         target += ' ].'
 
@@ -198,23 +199,42 @@ def make_definition(x, vmap, prefix=''):
         label = ep.label
         attrs = []
         if label in targets:
-            attrs.append('LBL #' + vmap.get(label, label))
+            attrs.append(('LBL', '#' + vmap.get(label, label)))
         if iv in targets:
-            attrs.append('ARG0 #' + vmap.get(iv, iv))
+            attrs.append(('ARG0', '#' + vmap.get(iv, iv)))
         for role, tgt in x.outgoing_args(ep.nodeid).items():
-            attrs.append('{} #{}'.format(role, vmap.get(tgt, tgt)))
+            attrs.append((role, '#' + vmap.get(tgt, tgt)))
             if tgt in qeqs:
                 lo = qeqs[tgt]
                 hcons.append('qeq & [ HARG #{}, LARG #{} ]'.format(tgt, vmap.get(lo, lo)))
         if ep.carg is not None:
-            attrs.append('CARG "{}"'.format(ep.carg))
-
-        attrs = ', '.join([''] + attrs) if attrs else ''
+            attrs.append(('CARG', '"{}"'.format(ep.carg)))
 
         pred = '"{}_rel"'.format(prefix + ep.pred.string.strip('"'))
-        rels.append('[ PRED {}{} ]'.format(pred, attrs))
+        rels.append([('PRED', pred)] + attrs)
 
-    return ' ,\n               '.join(rels), ', '.join(hcons)
+    return rels, hcons
+
+def format_rels(srels, trels, coindex):
+    if coindex and [p[0] for p in srels[0]] == [p[0] for p in trels[0]]:
+        copy = '#p & '
+    else:
+        copy = ''
+
+    srels = copy + ' ,\n               '.join(
+        '[ {} ]'.format(
+            ', '.join('{} {}'.format(role, val) for role, val in rel)
+        )
+        for rel in srels
+    )
+    trels = copy + ' ,\n               '.join(
+        '[ {} ]'.format(
+            ', '.join('{} {}'.format(role, val) for role, val in rel)
+        )
+        for rel in trels
+    )
+
+    return srels, trels
 
 #
 # TODO:
