@@ -141,7 +141,8 @@ def oracle_bleu(p, task):
 
 def format_eval(name, stats, args):
     w = max(len(str(v)) for k, v in stats.items()
-            if k not in ('bleu', 'oracle-bleu'))
+            if k not in ('bleu', 'oracle-bleu', 'rephrase-bleu',
+                         'rephrase-oracle-bleu'))
     avg_label=' (average):' if len(args['ITEM']) > 1 else ':' + (' ' * 10)
 
     s = '{name}:\n'.format(name=name)
