@@ -11,13 +11,14 @@ from delphin.mrs.penman import XMRSCodec
 from util import read_subgraph_file
 
 USAGE = '''
-Usage: merge-subgraphs SGFILE
+Usage: merge-subgraphs [--calc-probs] SGFILE...
 
 Arguments:
   SGFILE                    file containing aligned MRS subgraphs
 
 Options:
   -h, --help                display this help and exit
+  --calc-probs              find forward/backward probabilites from counts
 '''
 
 codec = XMRSCodec()
@@ -26,22 +27,38 @@ codec = XMRSCodec()
 def main():
     args = docopt.docopt(USAGE)
 
-    d = {}
-    for meta, s in read_subgraph_file(open(args['SGFILE'])):
-        count = int(dict(meta).get('count', 1))
-        d[s] = d.get(s, 0) + count
+    dc = {}  # pair count
+    sc = {}  # source side count
+    tc = {}  # target side count
+    for f in args['SGFILE']:
+        for meta, s in read_subgraph_file(open(f)):
+            count = int(dict(meta).get('count', 1))
+            dc[s] = dc.get(s, 0) + count
+            a, b = s.splitlines()
+            sc[a] = sc.get(a, 0) + count
+            tc[b] = tc.get(b, 0) + count
 
     seen = set()
-    for meta, s in read_subgraph_file(open(args['SGFILE'])):
-        if s in seen:
-            continue
-        seen.add(s)
-        meta = [(k, str(d[s]) if k == 'count' else v) for k, v in meta]
-        meta = ['::{}'.format(k) if v is None else '::{} {}'.format(k, v)
-                for k, v in meta]
-        print(' '.join(['#'] + meta))
-        print(s)
-        print()
+    for f in args['SGFILE']:
+        for meta, s in read_subgraph_file(open(f)):
+            if s in seen:
+                continue
+            seen.add(s)
+            meta = dict(meta)
+            meta['count'] = str(dc[s])
+            if args['--calc-probs']:
+                a, b = s.splitlines()
+                meta['src-tprob'] = '{:.6f}'.format(float(dc[s])/sc[a])
+                meta['tgt-tprob'] = '{:.6f}'.format(float(dc[s])/tc[b])
+            newmeta = ['::id ' + meta['id'], '::count ' + str(meta['count'])]
+            del meta['id']
+            del meta['count']
+            newmeta.extend(
+                '::{} {}'.format(k, meta[k]) for k in sorted(meta)
+            )
+            print(' '.join(['#'] + newmeta))
+            print(s)
+            print()
 
 if __name__ == '__main__':
     main()
