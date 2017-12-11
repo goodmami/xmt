@@ -106,7 +106,7 @@ def main():
 
     if args['--sort']:
         df.sort_values(
-            ['sord', 'sprob', 'tprob', 'freq'],
+            ['sord', 'sprob', 'tprob', 'freq', 'count'],
             ascending=False,
             inplace=True
         )
