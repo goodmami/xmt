@@ -9,7 +9,7 @@ import pandas as pd
 from util import read_subgraph_file, penman_structure as pstruct
 
 USAGE = '''
-Usage: select-subgraphs [-c C] [-s P] [-t P] [-f F]
+Usage: select-subgraphs [-c C] [-s P] [-t P] [-x P] [-f F]
                         [--isomorphic] [--order=MxN]
                         [--no-unknown-sources] [--no-unknown-targets]
                         [--predicates=FILE] [--sort] SGFILE
@@ -27,8 +27,9 @@ Arguments:
 General Options:
   -h, --help                display this help and exit
   -c C                      filter on the count
-  -s P                      filter on the source translation probability
-  -t P                      filter on the target translation probability
+  -s P                      filter on the forward translation probability
+  -t P                      filter on the backward translation probability
+  -x P                      filter on the (fwd*bwd) translation probability
   -f F                      filter on the anymalign frequency
   --isomorphic              keep when source and target are isomorphic
   --order MxN               keep when both source/target have order M/N
@@ -58,6 +59,9 @@ def main():
             df = df[(a <= df['tord']) & (df['tord'] <= b)]
         else:
             df = df[df['tord'] == int(tgt_o)]
+
+    # add symmetric translation probability
+    df['xprob'] = df['sprob'] * df['tprob']
 
     if args['--predicates']:
         predset = set(line.strip() for line in open(args['--predicates']))
@@ -96,6 +100,14 @@ def main():
             n = float(args['-t'])
             df = df[df['tprob'] >= n]
 
+    if args['-x']:
+        if args['-x'].startswith(':'):
+            n = int(args['-x'][1:])
+            df = df.sort_values('xprob').groupby('src').tail(n)
+        else:
+            n = float(args['-x'])
+            df = df[df['xprob'] >= n]
+
     if args['-f']:
         if args['-f'].startswith(':'):
             n = int(args['-f'][1:])
@@ -106,7 +118,7 @@ def main():
 
     if args['--sort']:
         df.sort_values(
-            ['sord', 'sprob', 'tprob', 'freq', 'count'],
+            ['sord', 'xprob', 'freq', 'count'],
             ascending=False,
             inplace=True
         )
