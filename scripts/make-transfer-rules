@@ -216,10 +216,9 @@ def make_definition(x, vmap, prefix=''):
     return rels, hcons
 
 def format_rels(srels, trels, coindex):
-    if coindex and [p[0] for p in srels[0]] == [p[0] for p in trels[0]]:
-        copy = '#p & '
-    else:
-        copy = ''
+    ssig = [(p[0], p[1].lstrip('#')[0]) for p in srels[0]] 
+    tsig = [(p[0], p[1].lstrip('#')[0]) for p in trels[0]] 
+    copy = '#p & ' if coindex and ssig == tsig else ''
 
     srels = copy + ' ,\n               '.join(
         '[ {} ]'.format(

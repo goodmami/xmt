@@ -50,11 +50,12 @@ def do(args):
         # if args['--meteor']:
         #     update_stats(p_stats, meteor(p))
 
-        print(format_eval(itemdir, p_stats, args))
+        if not args['--summary-only']:
+            print(format_eval(itemdir, p_stats, args))
 
         update_stats(stats, p_stats)
 
-    if numitems > 1:
+    if numitems > 1 or args['--summary-only']:
         print(format_eval('Summary', stats, args))
 
 
@@ -107,6 +108,7 @@ def bleu(p, task):
 
     logging.debug('Calculating BLEU for {}'.format(p.root))
     pairs = select.select_first(p, join_table, hyp_spec, ref_spec)
+
     score = bleu_score.corpus_bleu(
         [[_tokenize(ref.lower())] for _, ref in pairs],
         [_tokenize(hyp.lower()) for hyp, _ in pairs],

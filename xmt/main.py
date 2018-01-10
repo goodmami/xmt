@@ -12,7 +12,7 @@ usage:
   xmt generate  [-v...] [ITEM...]
   xmt rephrase  [-v...] [ITEM...]
   xmt evaluate  [--coverage] [--bleu] [--oracle-bleu] [--all] [--ignore=S]
-                [-v...] [ITEM...]
+                [--summary-only] [-v...] [ITEM...]
   xmt select    [--oracle-bleu] [--tokenize] [--rephrasing] [--item-id]
                 [-v...] [ITEM...]
   xmt [--help|--version]
@@ -48,6 +48,7 @@ Evaluation Options:
   --oracle-bleu
   --all
   --ignore S
+  --summary-only
 
 """
 
