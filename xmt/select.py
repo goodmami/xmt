@@ -28,11 +28,18 @@ def do(args):
     for i, itemdir in enumerate(args['ITEM']):
         itemdir = os.path.normpath(itemdir)
         p = itsdb.ItsdbProfile(itemdir)
-        for hyp, ref in select(p, join_table, hyp_spec, ref_spec):
-            print('{}\t{}'.format(make_hyp(hyp), make_ref(ref)))
+        if args['--item-id']:
+            for i_id, hyp, ref in select(
+                    p, join_table, hyp_spec, ref_spec, with_id=True):
+                print(
+                    '{}\t{}\t{}'.format(i_id, make_hyp(hyp), make_ref(ref))
+                )
+        else:
+            for hyp, ref in select(p, join_table, hyp_spec, ref_spec):
+                print('{}\t{}'.format(make_hyp(hyp), make_ref(ref)))
 
 
-def select_first(p, join_table, hyp_spec, ref_spec):
+def select_first(p, join_table, hyp_spec, ref_spec, with_id=False):
     """
     Return (hypothesis, reference) translation pairs using the first
     realization result per item.
@@ -44,11 +51,14 @@ def select_first(p, join_table, hyp_spec, ref_spec):
         rows = []
     for i_id, group in groupby(rows, key=lambda row: row['item:i-id']):
         row = next(group)
-        pairs.append((row[hyp_spec], row[ref_spec]))
+        pair = [row[hyp_spec], row[ref_spec]]
+        if with_id:
+            pair = [i_id] + pair
+        pairs.append(tuple(pair))
     return pairs
 
 
-def select_oracle(p, join_table, hyp_spec, ref_spec):
+def select_oracle(p, join_table, hyp_spec, ref_spec, with_id=False):
     """
     Return (hypothesis, reference) translation pairs using the
     realization result per item with the highest BLEU score.
@@ -70,6 +80,9 @@ def select_oracle(p, join_table, hyp_spec, ref_spec):
                 )
             )
         best = sorted(scored, key=lambda r: r[0])[-1]
-        pairs.append(best[1:])
+        pair = best[1:]
+        if with_id:
+            pair = [i_id] + pair
+        pairs.append(tuple(pair))
 
     return pairs

@@ -13,7 +13,8 @@ usage:
   xmt rephrase  [-v...] [ITEM...]
   xmt evaluate  [--coverage] [--bleu] [--oracle-bleu] [--all] [--ignore=S]
                 [-v...] [ITEM...]
-  xmt select    [--oracle-bleu] [--tokenize] [--rephrasing] [-v...] [ITEM...]
+  xmt select    [--oracle-bleu] [--tokenize] [--rephrasing] [--item-id]
+                [-v...] [ITEM...]
   xmt [--help|--version]
 
 Tasks:
