@@ -71,7 +71,7 @@ def select_oracle(p, join_table, hyp_spec, ref_spec, with_id=False):
     for i_id, group in groupby(rows, key=lambda row: row['item:i-id']):
         scored = []
         for res in group:
-            pair = [res[ref_spec], res[hyp_spec]]
+            pair = [res[hyp_spec], res[ref_spec]]
             scored.append(
                 tuple(
                     [bleu([_tokenize(pair[1])], _tokenize(pair[0]),
@@ -80,7 +80,7 @@ def select_oracle(p, join_table, hyp_spec, ref_spec, with_id=False):
                 )
             )
         best = sorted(scored, key=lambda r: r[0])[-1]
-        pair = best[1:]
+        pair = list(best[1:])
         if with_id:
             pair = [i_id] + pair
         pairs.append(tuple(pair))
