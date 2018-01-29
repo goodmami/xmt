@@ -140,4 +140,6 @@ def read_subgraph_file(f):
         yield meta, '\n'.join(lines)
 
 def penman_structure(s):
-    return ''.join(re.findall(r'(\([eihpux](?=\d+ )|:[^ ]+(?= \()|\))', s))
+    s = re.sub(r'(:[^ ]+ )([eihpux]\d+)', r'\1(\2)', s)
+    return ''.join(re.findall(r'(\([eihpux]\d+(?=[ )])|:[^ ]+(?= \()|\))', s))
+
